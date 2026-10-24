@@ -1,0 +1,22 @@
+{
+  "name": "Du Lịch Ẩm Thực Quận 4 — Pocket Audio Tour",
+  "short_name": "Ẩm Thực Q4",
+  "description": "Bản đồ tương tác và hướng dẫn viên âm thanh đa ngôn ngữ hoạt động ngoại tuyến tại Quận 4, TP.HCM",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#e65100",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

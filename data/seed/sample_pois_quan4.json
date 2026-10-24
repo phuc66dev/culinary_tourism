@@ -1,0 +1,72 @@
+[
+  {
+    "name": "Ốc Oanh Vĩnh Khánh",
+    "category": "seafood",
+    "address": "534 Vĩnh Khánh, Phường 8, Quận 4, TP.HCM",
+    "location": {
+      "type": "Point",
+      "coordinates": [106.7028, 10.7582]
+    },
+    "trigger_radius": 30,
+    "audio_priority": 10,
+    "original_description": "Quán ốc nổi tiếng bậc nhất phố ẩm thực Vĩnh Khánh với món ốc hương rang muối ớt và càng ghẹ nướng phô mai thơm lừng.",
+    "images": ["/static/images/poi/oc-oanh-1.webp"],
+    "is_active": true
+  },
+  {
+    "name": "Phá Lấu Bò Cô Thảo",
+    "category": "street_food",
+    "address": "243/29G Tôn Đản, Phường 15, Quận 4, TP.HCM",
+    "location": {
+      "type": "Point",
+      "coordinates": [106.7065, 10.7558]
+    },
+    "trigger_radius": 30,
+    "audio_priority": 9,
+    "original_description": "Phá lấu bò truyền thống nấu nước cốt dừa béo ngậy, chấm mắm tắc chua ngọt ăn kèm bánh mì nóng giòn.",
+    "images": ["/static/images/poi/pha-lau-co-thao-1.webp"],
+    "is_active": true
+  },
+  {
+    "name": "Súp Cua Hằng",
+    "category": "snack",
+    "address": "C200/18 Xóm Chiếu, Phường 14, Quận 4, TP.HCM",
+    "location": {
+      "type": "Point",
+      "coordinates": [106.7089, 10.7574]
+    },
+    "trigger_radius": 30,
+    "audio_priority": 8,
+    "original_description": "Súp cua đặc sánh đầy ắp thịt cua, trứng bắc thảo và óc heo tại khu vực chợ Xóm Chiếu.",
+    "images": ["/static/images/poi/sup-cua-hang-1.webp"],
+    "is_active": true
+  },
+  {
+    "name": "Bánh Tráng Nướng Cô Đầu",
+    "category": "snack",
+    "address": "Tôn Đản, Phường 15, Quận 4, TP.HCM",
+    "location": {
+      "type": "Point",
+      "coordinates": [106.7059, 10.7563]
+    },
+    "trigger_radius": 30,
+    "audio_priority": 7,
+    "original_description": "Điểm ăn vặt quen thuộc trên đường Tôn Đản với bánh tráng nướng giòn rụm đầy nhân trứng cút, tép khô và phô mai.",
+    "images": ["/static/images/poi/banh-trang-nuong-1.webp"],
+    "is_active": true
+  },
+  {
+    "name": "Cơm Tấm Bãi Rác",
+    "category": "rice",
+    "address": "73 Lê Văn Linh, Phường 13, Quận 4, TP.HCM",
+    "location": {
+      "type": "Point",
+      "coordinates": [106.7077, 10.7611]
+    },
+    "trigger_radius": 30,
+    "audio_priority": 8,
+    "original_description": "Quán cơm tấm đêm trứ danh Quận 4 với sườn nướng mật ong dày thịt, bì chả và trứng ốp la lòng đào.",
+    "images": ["/static/images/poi/com-tam-bai-rac-1.webp"],
+    "is_active": true
+  }
+]

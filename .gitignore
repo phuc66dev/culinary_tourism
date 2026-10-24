@@ -1,0 +1,59 @@
+# =========================
+# Python / Backend
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# =========================
+# Node / Frontend
+# =========================
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dev-dist/
+.npm
+.eslintcache
+*.tsbuildinfo
+
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/.env
+frontend/.env
+
+# =========================
+# Runtime & Generated Media
+# =========================
+backend/app/static/audio/*.mp3
+backend/app/static/images/poi/*
+!backend/app/static/audio/.gitkeep
+!backend/app/static/images/poi/.gitkeep
+!backend/app/static/maps/.gitkeep
+data/maps/*.pmtiles
+
+# =========================
+# IDEs & OS
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

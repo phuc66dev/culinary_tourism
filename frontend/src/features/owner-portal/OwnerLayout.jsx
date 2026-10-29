@@ -5,6 +5,7 @@ import OwnerPOIPage from './pages/OwnerPOIPage.jsx';
 import OwnerSubmissionsPage from './pages/OwnerSubmissionsPage.jsx';
 import RegistrationStatusPage from './pages/RegistrationStatusPage.jsx';
 import OwnerNotificationDetailPage from './pages/OwnerNotificationDetailPage.jsx';
+import OwnerNotificationsPage from './pages/OwnerNotificationsPage.jsx';
 
 /**
  * OwnerLayout — Khung giao diện Cổng Chủ Quán B2B (`/owner/*`).
@@ -23,6 +24,7 @@ export default function OwnerLayout() {
           <Link to="/owner/poi">Quản lý Quán & Menu</Link>
           <Link to="/owner/submissions">Lịch sử Gửi duyệt</Link>
           <Link to="/owner/status">Trạng thái Hồ sơ</Link>
+          <Link to="/owner/notifications">Thông báo</Link>
         </nav>
       </header>
 
@@ -32,6 +34,7 @@ export default function OwnerLayout() {
           <Route path="poi" element={<OwnerPOIPage />} />
           <Route path="submissions" element={<OwnerSubmissionsPage />} />
           <Route path="status" element={<RegistrationStatusPage />} />
+          <Route path="notifications" element={<OwnerNotificationsPage />} />
           <Route path="notifications/:id" element={<OwnerNotificationDetailPage />} />
         </Routes>
       </main>

@@ -1,22 +1,41 @@
-version: "3.9"
-
 services:
   mongodb:
     image: mongo:7.0
     container_name: quan4_mongodb
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - '127.0.0.1:27017:27017'
     volumes:
       - mongodb_data:/data/db
-    command: ["--replSet", "rs0", "--bind_ip_all"]
+    command: ['--replSet', 'rs0', '--bind_ip_all']
+    healthcheck:
+      test: ['CMD-SHELL', 'mongosh --quiet --eval "db.adminCommand({ ping: 1 }).ok" | grep 1']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  mongo-init:
+    image: mongo:7.0
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: 'no'
+    entrypoint: ['bash', '-ec']
+    command:
+      - |
+        mongosh --host mongodb:27017 --quiet --eval '
+        try { rs.status(); } catch (e) {
+          if (e.codeName === "NotYetInitialized") {
+            rs.initiate({_id:"rs0", members:[{_id:0, host:"localhost:27017"}]});
+          } else { throw e; }
+        }'
 
   redis:
     image: redis:7.2-alpine
     container_name: quan4_redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - '127.0.0.1:6379:6379'
     volumes:
       - redis_data:/data
 

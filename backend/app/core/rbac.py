@@ -4,6 +4,10 @@ Phụ trách: Vũ (Task 3.3)
 """
 from typing import Callable
 
+from fastapi import Depends, HTTPException, status
+
+from app.core.security import get_current_user
+
 # 9 Permission Domains & 32 Static Permissions theo PRD
 PERMISSION_DOMAINS: dict[str, list[str]] = {
     "poi": ["read", "create", "update", "delete", "approve", "toggle"],
@@ -58,10 +62,24 @@ DEFAULT_ROLES: dict[str, dict] = {
 def require_permission(permission: str) -> Callable:
     """
     Dependency Guard kiểm tra quyền trên từng Route.
-    Ví dụ: Depends(require_permission("poi:approve"))
+
+        @router.post("/pois/{id}/approve")
+        async def approve(user: dict = Depends(require_permission("poi:approve"))): ...
+
+    - Chưa đăng nhập → 401. Đăng nhập nhưng thiếu quyền → 403.
+    - Quyền được đọc từ collection `roles` mỗi request (Dynamic RBAC), không nhúng cứng trong JWT.
+    - Trả về dict current_user nên route có thể dùng luôn (`user["id"]`, `user["role"]`...).
     """
-    async def _permission_guard() -> None:
-        # TODO (Vũ - Task 3.3): Kiểm tra permission trong JWT payload của current_user
-        pass
+    if permission not in ALL_PERMISSIONS:
+        # Bắt lỗi gõ sai ngay lúc import module, không đợi tới lúc có request.
+        raise ValueError(f"Permission không tồn tại: {permission!r}")
+
+    async def _permission_guard(user: dict = Depends(get_current_user)) -> dict:
+        if permission not in user["permissions"]:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"Bạn không có quyền thực hiện thao tác này ({permission})",
+            )
+        return user
 
     return _permission_guard

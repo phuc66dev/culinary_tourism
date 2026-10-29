@@ -24,4 +24,5 @@ httpx>=0.27.2
 # Settings & Utilities
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
+email-validator>=2.2.0
 python-dotenv>=1.0.1

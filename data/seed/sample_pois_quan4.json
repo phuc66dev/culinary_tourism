@@ -1,72 +1,163 @@
 [
   {
-    "name": "Ốc Oanh Vĩnh Khánh",
-    "category": "seafood",
-    "address": "534 Vĩnh Khánh, Phường 8, Quận 4, TP.HCM",
+    "slug": "nem-nuong-nia",
+    "name": "Nem Nướng Nia",
+    "category": "street_food",
+    "address": "50 Hoàng Diệu, Phường 12, Quận 4, TP.HCM",
+    "ward": "Phường 12",
     "location": {
       "type": "Point",
-      "coordinates": [106.7028, 10.7582]
+      "coordinates": [
+        106.706012,
+        10.7648771
+      ]
     },
     "trigger_radius": 30,
     "audio_priority": 10,
-    "original_description": "Quán ốc nổi tiếng bậc nhất phố ẩm thực Vĩnh Khánh với món ốc hương rang muối ớt và càng ghẹ nướng phô mai thơm lừng.",
-    "images": ["/static/images/poi/oc-oanh-1.webp"],
-    "is_active": true
+    "original_description": "Nem Nướng Nia là quán ăn bình dân với không gian giản dị. Nem nướng được cuốn cùng bánh tráng, chả cá, chả giò, rau sống, dưa leo, xoài và đồ chua, chấm với nước mắm chanh ớt đậm đà. Quán được giới thiệu với mức giá dễ tiếp cận và chủ quán thân thiện.",
+    "images": [],
+    "is_active": false,
+    "localizations": {
+      "vi": {
+        "title": "Nem Nướng Nia",
+        "description": "Nem Nướng Nia là quán ăn bình dân với không gian giản dị. Nem nướng được cuốn cùng bánh tráng, chả cá, chả giò, rau sống, dưa leo, xoài và đồ chua, chấm với nước mắm chanh ớt đậm đà. Quán được giới thiệu với mức giá dễ tiếp cận và chủ quán thân thiện."
+      },
+      "en": {
+        "title": "Nia Grilled Pork Rolls",
+        "description": "Nem Nuong Nia is a casual eatery with a simple setting. Its grilled pork rolls are wrapped in rice paper with fish cakes, spring rolls, fresh herbs, cucumber, mango and pickled vegetables, then dipped in a tangy lime-and-chili fish sauce."
+      }
+    }
   },
   {
-    "name": "Phá Lấu Bò Cô Thảo",
+    "slug": "pho-mui-241",
+    "name": "Quán Phở Mùi 241",
     "category": "street_food",
-    "address": "243/29G Tôn Đản, Phường 15, Quận 4, TP.HCM",
+    "address": "241 Tôn Đản, Phường 15, Quận 4, TP.HCM",
+    "ward": "Phường 15",
     "location": {
       "type": "Point",
-      "coordinates": [106.7065, 10.7558]
+      "coordinates": [
+        106.7062361,
+        10.7566666
+      ]
     },
     "trigger_radius": 30,
     "audio_priority": 9,
-    "original_description": "Phá lấu bò truyền thống nấu nước cốt dừa béo ngậy, chấm mắm tắc chua ngọt ăn kèm bánh mì nóng giòn.",
-    "images": ["/static/images/poi/pha-lau-co-thao-1.webp"],
-    "is_active": true
+    "opening_hours": "06:00-21:00",
+    "original_description": "Quán Phở Mùi 241 phục vụ phở mang hương vị miền Bắc, với nước dùng trong, vị ngọt tự nhiên từ xương hầm và hương thơm của gừng, quế. Thực đơn có phở bò tái, bò gân, bò viên và phở thập cẩm. Không gian rộng rãi, sạch sẽ, có máy lạnh. Giờ mở cửa được giới thiệu: 06:00 đến 21:00.",
+    "images": [],
+    "is_active": false,
+    "localizations": {
+      "vi": {
+        "title": "Quán Phở Mùi 241",
+        "description": "Quán Phở Mùi 241 phục vụ phở mang hương vị miền Bắc, với nước dùng trong, vị ngọt tự nhiên từ xương hầm và hương thơm của gừng, quế. Thực đơn có phở bò tái, bò gân, bò viên và phở thập cẩm. Không gian rộng rãi, sạch sẽ, có máy lạnh. Giờ mở cửa được giới thiệu: 06:00 đến 21:00."
+      },
+      "en": {
+        "title": "Pho Mui 241",
+        "description": "Pho Mui 241 serves Northern-style Vietnamese pho with a clear, naturally sweet bone broth scented with ginger and cinnamon. The menu includes rare beef, beef tendon, beef meatballs and mixed beef pho. The dining area is spacious, clean and air-conditioned."
+      }
+    }
   },
   {
-    "name": "Súp Cua Hằng",
-    "category": "snack",
-    "address": "C200/18 Xóm Chiếu, Phường 14, Quận 4, TP.HCM",
+    "slug": "pha-lau-bo-co-thao",
+    "name": "Phá Lấu Bò Cô Thảo",
+    "category": "street_food",
+    "address": "243/29G Tôn Đản, Phường 15, Quận 4, TP.HCM",
+    "ward": "Phường 15",
     "location": {
       "type": "Point",
-      "coordinates": [106.7089, 10.7574]
+      "coordinates": [
+        106.7071777,
+        10.7566322
+      ]
     },
     "trigger_radius": 30,
     "audio_priority": 8,
-    "original_description": "Súp cua đặc sánh đầy ắp thịt cua, trứng bắc thảo và óc heo tại khu vực chợ Xóm Chiếu.",
-    "images": ["/static/images/poi/sup-cua-hang-1.webp"],
-    "is_active": true
+    "opening_hours": "13:30-22:00",
+    "price_range_vnd": {
+      "min": 10000,
+      "max": 30000
+    },
+    "original_description": "Phá Lấu Bò Cô Thảo là quán vỉa hè với món phá lấu bò gồm lòng, gan, lá lách và dạ dày được nấu vừa chín. Nước dùng đậm đà, béo thơm mùi nước dừa, có thể ăn kèm bánh mì. Giờ mở cửa tham khảo: 13:30 đến 22:00; giá tham khảo: 10.000 đến 30.000 đồng.",
+    "images": [],
+    "is_active": false,
+    "localizations": {
+      "vi": {
+        "title": "Phá Lấu Bò Cô Thảo",
+        "description": "Phá Lấu Bò Cô Thảo là quán vỉa hè với món phá lấu bò gồm lòng, gan, lá lách và dạ dày được nấu vừa chín. Nước dùng đậm đà, béo thơm mùi nước dừa, có thể ăn kèm bánh mì. Giờ mở cửa tham khảo: 13:30 đến 22:00; giá tham khảo: 10.000 đến 30.000 đồng."
+      },
+      "en": {
+        "title": "Co Thao Beef Offal Stew",
+        "description": "Co Thao is a casual street-side stall serving pha lau: gently cooked beef offal, including liver, spleen and tripe, in a rich, fragrant coconut broth. The stew can be enjoyed with bread."
+      }
+    }
   },
   {
-    "name": "Bánh Tráng Nướng Cô Đầu",
-    "category": "snack",
-    "address": "Tôn Đản, Phường 15, Quận 4, TP.HCM",
+    "slug": "oc-thao-vinh-khanh",
+    "name": "Quán Ốc Thảo",
+    "category": "seafood",
+    "address": "383 Vĩnh Khánh, Phường 8, Quận 4, TP.HCM",
+    "ward": "Phường 8",
     "location": {
       "type": "Point",
-      "coordinates": [106.7059, 10.7563]
+      "coordinates": [
+        106.7023637,
+        10.7616801
+      ]
+    },
+    "trigger_radius": 30,
+    "audio_priority": 9,
+    "opening_hours": "10:00-00:00",
+    "price_range_vnd": {
+      "min": 100000,
+      "max": 165000
+    },
+    "original_description": "Quán Ốc Thảo nằm trên phố ẩm thực Vĩnh Khánh, có mặt bằng khá rộng và không gian đơn giản. Thực đơn gồm nhiều loại ốc, nghêu, tôm, cua và ghẹ, chế biến theo nhiều cách như xào dừa, xào sả ớt hoặc xào sa tế. Giờ mở cửa tham khảo: 10:00 đến nửa đêm; giá tham khảo: 100.000 đến 165.000 đồng.",
+    "images": [],
+    "is_active": false,
+    "localizations": {
+      "vi": {
+        "title": "Quán Ốc Thảo",
+        "description": "Quán Ốc Thảo nằm trên phố ẩm thực Vĩnh Khánh, có mặt bằng khá rộng và không gian đơn giản. Thực đơn gồm nhiều loại ốc, nghêu, tôm, cua và ghẹ, chế biến theo nhiều cách như xào dừa, xào sả ớt hoặc xào sa tế. Giờ mở cửa tham khảo: 10:00 đến nửa đêm; giá tham khảo: 100.000 đến 165.000 đồng."
+      },
+      "en": {
+        "title": "Oc Thao Seafood Restaurant",
+        "description": "Oc Thao is a casual seafood restaurant on Vinh Khanh food street. Its varied menu features sea snails, clams, prawns, crabs and other shellfish, prepared with coconut, lemongrass and chili, or satay sauce."
+      }
+    }
+  },
+  {
+    "slug": "dua-tac-co-ut",
+    "name": "Dừa Tắc Cô Út",
+    "category": "snack",
+    "address": "113B Xóm Chiếu, Phường 14, Quận 4, TP.HCM",
+    "ward": "Phường 14",
+    "location": {
+      "type": "Point",
+      "coordinates": [
+        106.7107242,
+        10.7580329
+      ]
     },
     "trigger_radius": 30,
     "audio_priority": 7,
-    "original_description": "Điểm ăn vặt quen thuộc trên đường Tôn Đản với bánh tráng nướng giòn rụm đầy nhân trứng cút, tép khô và phô mai.",
-    "images": ["/static/images/poi/banh-trang-nuong-1.webp"],
-    "is_active": true
-  },
-  {
-    "name": "Cơm Tấm Bãi Rác",
-    "category": "rice",
-    "address": "73 Lê Văn Linh, Phường 13, Quận 4, TP.HCM",
-    "location": {
-      "type": "Point",
-      "coordinates": [106.7077, 10.7611]
+    "opening_hours": "07:00-24:00",
+    "price_range_vnd": {
+      "min": 10000,
+      "max": 20000
     },
-    "trigger_radius": 30,
-    "audio_priority": 8,
-    "original_description": "Quán cơm tấm đêm trứ danh Quận 4 với sườn nướng mật ong dày thịt, bì chả và trứng ốp la lòng đào.",
-    "images": ["/static/images/poi/com-tam-bai-rac-1.webp"],
-    "is_active": true
+    "original_description": "Dừa Tắc Cô Út nổi bật với món dừa tắc ngọt thanh, hơi chua từ trái tắc và thơm mùi dừa. Quán còn phục vụ bánh gạo xào chân gà, bánh tráng cuốn dẻo và cóc non trộn tắc bò. Không gian khá rộng. Giờ mở cửa tham khảo: 07:00 đến 24:00; giá tham khảo: 10.000 đến 20.000 đồng.",
+    "images": [],
+    "is_active": false,
+    "localizations": {
+      "vi": {
+        "title": "Dừa Tắc Cô Út",
+        "description": "Dừa Tắc Cô Út nổi bật với món dừa tắc ngọt thanh, hơi chua từ trái tắc và thơm mùi dừa. Quán còn phục vụ bánh gạo xào chân gà, bánh tráng cuốn dẻo và cóc non trộn tắc bò. Không gian khá rộng. Giờ mở cửa tham khảo: 07:00 đến 24:00; giá tham khảo: 10.000 đến 20.000 đồng."
+      },
+      "en": {
+        "title": "Co Ut Coconut and Kumquat Drink",
+        "description": "Co Ut is known for its refreshing coconut-and-kumquat drink, with a gentle sweetness, a slight citrus tang and a natural coconut aroma. The shop also serves snacks such as stir-fried rice cakes with chicken feet, soft rice paper rolls and young ambarella fruit with kumquat and beef."
+      }
+    }
   }
 ]

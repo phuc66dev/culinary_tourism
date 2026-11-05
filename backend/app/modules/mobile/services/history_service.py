@@ -1,6 +1,7 @@
 import time
 import uuid
 from typing import Optional
+from bson import ObjectId
 from app.core.database import get_db
 from app.modules.mobile.schemas import ListeningHistoryCreate
 
@@ -9,6 +10,18 @@ class MobileHistoryService:
     @property
     def db(self):
         return get_db()
+
+    async def _find_poi(self, poi_id: str) -> dict:
+        if not poi_id:
+            return {}
+        conditions = [{"_id": poi_id}, {"id": poi_id}, {"slug": poi_id}]
+        if ObjectId.is_valid(poi_id):
+            conditions.append({"_id": ObjectId(poi_id)})
+
+        poi = await self.db["poi"].find_one({"$or": conditions})
+        if poi:
+            return poi
+        return await self.db["pois"].find_one({"$or": conditions}) or {}
 
     async def save_listening_history(
         self, payload: ListeningHistoryCreate, user_id: Optional[str] = None
@@ -64,10 +77,19 @@ class MobileHistoryService:
         for rec in records:
             poi_id = rec.get("stall_id") or rec.get("poi_id")
             content_id = rec.get("stall_content_id") or rec.get("poi_content_id")
-            poi = await self.db.pois.find_one({"$or": [{"_id": poi_id}, {"id": poi_id}]}) or {}
+            poi = await self._find_poi(poi_id)
 
-            trans = (poi.get("translations") or {}).get(language) or {}
-            poi_name = trans.get("name") or poi.get("name", "Quán ăn")
+            poi_name = poi.get("name", "Quán ăn")
+            if language != "vi" and poi:
+                loc = await self.db["poi_localizations"].find_one({
+                    "poi_id": {"$in": [poi.get("_id"), str(poi.get("_id"))]},
+                    "lang": language,
+                })
+                if loc and loc.get("title"):
+                    poi_name = loc["title"]
+                elif poi.get("translations", {}).get(language, {}).get("name"):
+                    poi_name = poi["translations"][language]["name"]
+
             cover_image = poi.get("cover_image") or (poi.get("images")[0] if poi.get("images") else None)
 
             result_items.append({

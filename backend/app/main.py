@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.core.database import close_db, connect_db
 
-# Import 10 Router Lanes
+# Import 10 Router Lanes + Mobile Router & WebSocket
 from app.modules.content.router import router as content_router
 from app.modules.audio.router import router as audio_router
 from app.modules.admin.router import router as admin_router
@@ -59,8 +59,9 @@ static_path = Path(__file__).resolve().parent / "static"
 static_path.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
 
-# Mount 10 Router Lanes dưới prefix /api/v1
+# Mount Router Lanes dưới prefix /api/v1
 API_PREFIX = "/api/v1"
+app.include_router(mobile_router, prefix=f"{API_PREFIX}/mobile")
 app.include_router(content_router, prefix=f"{API_PREFIX}/poi", tags=["1. Content (POI)"])
 app.include_router(audio_router, prefix=f"{API_PREFIX}/audio", tags=["2. Audio & TTS"])
 app.include_router(admin_router, prefix=f"{API_PREFIX}/admin", tags=["3. Admin & Auth"])
@@ -75,6 +76,11 @@ app.include_router(
     prefix=f"{API_PREFIX}/runtime",
     tags=["10. Runtime Observability"],
 )
+
+# WebSocket Online Heartbeat routes cho Mobile
+app.include_router(ws_router, prefix="/mobile")
+app.include_router(ws_router, prefix=f"{API_PREFIX}/mobile")
+app.include_router(ws_router)
 
 
 @app.get("/health", tags=["Health"])

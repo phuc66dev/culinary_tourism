@@ -12,6 +12,7 @@ redis>=5.2.0
 PyJWT>=2.9.0
 bcrypt>=4.2.0
 cryptography>=43.0.0
+google-auth>=2.0.0
 
 # Audio TTS & Machine Translation (Zero-Cost Core)
 edge-tts>=6.1.12

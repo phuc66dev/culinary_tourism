@@ -267,6 +267,46 @@ async def get_available_languages(poi_id: str):
     )
 
 
+# ==========================================
+# 3.1. CONTENT & NEARBY PLAYLIST (Thuyết minh lân cận)
+# ==========================================
+content_router = APIRouter(prefix="/content")
+
+
+@content_router.get("/nearby", summary="Nội dung thuyết minh các POI lân cận vị trí GPS / Điểm chạm")
+async def get_nearby_content(
+    lat: Optional[float] = Query(None, description="Vĩ độ"),
+    latitude: Optional[float] = Query(None, description="Vĩ độ (alias)"),
+    lng: Optional[float] = Query(None, description="Kinh độ"),
+    longitude: Optional[float] = Query(None, description="Kinh độ (alias)"),
+    radius: float = Query(30.0, description="Bán kính Geofence mặc định (mét)"),
+    limit: int = Query(20, ge=1, le=100),
+    accept_language: str = Header("vi"),
+    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+):
+    locale = accept_language.split(",")[0].split("-")[0] if isinstance(accept_language, str) else "vi"
+    user_id = str(current_user["_id"]) if current_user else None
+
+    user_lat = latitude if latitude is not None else lat
+    user_lng = longitude if longitude is not None else lng
+
+    if user_lat is None or user_lng is None:
+        raise HTTPException(status_code=400, detail="Tọa độ (lat, lng) là bắt buộc")
+
+    data = await mobile_poi_service.get_nearby_content(
+        lat=user_lat,
+        lng=user_lng,
+        radius=radius,
+        language=locale,
+        user_id=user_id,
+        device_id=x_device_id,
+        limit=limit,
+    )
+    return success_response(message="Get nearby content success", data=data)
+
+
+router.include_router(content_router)
 router.include_router(poi_router)
 
 # Alias route ẩn (/stalls) để tương thích ngược nếu app cũ còn gọi, include_in_schema=False để sạch Swagger
@@ -275,6 +315,7 @@ hidden_stall_router.add_api_route("", get_pois, methods=["GET"])
 hidden_stall_router.add_api_route("/{poi_id}", get_poi_detail, methods=["GET"])
 hidden_stall_router.add_api_route("/{poi_id}/content", get_poi_content, methods=["GET"])
 hidden_stall_router.add_api_route("/{poi_id}/content/available-languages", get_available_languages, methods=["GET"])
+hidden_stall_router.add_api_route("/content/nearby", get_nearby_content, methods=["GET"])
 router.include_router(hidden_stall_router)
 
 

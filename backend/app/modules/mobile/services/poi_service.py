@@ -343,5 +343,91 @@ class MobilePoiService:
 
         return [{"language_code": code} for code in sorted(languages_set)]
 
+    async def get_nearby_content(
+        self,
+        lat: float,
+        lng: float,
+        radius: float = 30.0,
+        language: str = "vi",
+        user_id: Optional[str] = None,
+        device_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[dict]:
+        """
+        Lấy danh sách các bài thuyết minh audio của các POI nằm trong vùng phát tự động (Geofence),
+        sắp xếp các POI gần nhau theo thứ tự khoảng cách tăng dần (ưu tiên gần nhất phát trước).
+        """
+        filter_query: dict = {"$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
+
+        cursor = self.db["poi"].find(filter_query)
+        all_pois = await cursor.to_list(length=500)
+        if not all_pois:
+            cursor_fallback = self.db["pois"].find(filter_query)
+            all_pois = await cursor_fallback.to_list(length=500)
+
+        listened_ids = await self.get_listened_poi_ids(user_id=user_id, device_id=device_id)
+
+        matched_pois = []
+        for poi in all_pois:
+            raw_id = poi.get("_id")
+            poi_id = str(raw_id) if raw_id is not None else str(poi.get("id", ""))
+
+            # Trích xuất tọa độ từ GeoJSON hoặc trường latitude/longitude
+            loc = poi.get("location")
+            if isinstance(loc, dict) and "coordinates" in loc and len(loc["coordinates"]) >= 2:
+                poi_lng, poi_lat = float(loc["coordinates"][0]), float(loc["coordinates"][1])
+            else:
+                poi_lat = float(poi.get("latitude", 10.758))
+                poi_lng = float(poi.get("longitude", 106.702))
+
+            # Khoảng cách mét = km * 1000
+            distance_meters = self._calculate_distance(lat, lng, poi_lat, poi_lng) * 1000.0
+
+            # Bán kính Geofence của quán (trigger_radius hoặc radius, fallback radius truyền vào)
+            effective_radius = float(poi.get("trigger_radius", poi.get("radius", radius)))
+
+            if distance_meters <= effective_radius:
+                is_listened = poi_id in listened_ids or str(raw_id) in listened_ids
+                priority = int(poi.get("audio_priority", poi.get("priority", 5)))
+                matched_pois.append({
+                    "poi": poi,
+                    "poi_id": poi_id,
+                    "distance_meters": round(distance_meters, 1),
+                    "is_listened": is_listened,
+                    "priority": priority,
+                })
+
+        # Sắp xếp các quán gần nhau:
+        # 1. Chưa nghe lên trước
+        # 2. Khoảng cách gần nhất lên trước
+        # 3. Audio priority cao lên trước
+        matched_pois.sort(key=lambda x: (
+            1 if x["is_listened"] else 0,
+            x["distance_meters"],
+            -x["priority"],
+        ))
+
+        # Giới hạn số lượng quán
+        matched_pois = matched_pois[:limit]
+
+        # Lấy nội dung thuyết minh kèm đa ngôn ngữ cho từng POI
+        results = []
+        for item in matched_pois:
+            poi = item["poi"]
+            poi_id = item["poi_id"]
+            dist = item["distance_meters"]
+            cover_image = poi.get("cover_image") or (poi.get("images")[0] if poi.get("images") else None)
+
+            contents = await self.get_content_with_fallback(poi_id, language=language)
+            for c in contents:
+                entry = dict(c)
+                entry["stall_name"] = entry.get("title") or poi.get("name", "")
+                entry["poi_name"] = entry.get("title") or poi.get("name", "")
+                entry["distance_meters"] = dist
+                entry["cover_image"] = cover_image
+                results.append(entry)
+
+        return results
+
 
 mobile_poi_service = MobilePoiService()

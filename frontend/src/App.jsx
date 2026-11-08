@@ -1,8 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { Routes, Route } from 'react-router-dom';
-
-// [Bảo] Phân hệ Du khách (Public Tourist PWA)
-import MapApp from './features/public-app/MapApp.jsx';
+import { Navigate, Routes, Route } from 'react-router-dom';
 
 // [Phúc] Phân hệ Chủ quán (Owner Portal — Lazy Loaded)
 const PublicOwnerRegisterPage = lazy(() => import('./features/owner-portal/pages/PublicOwnerRegisterPage.jsx'));
@@ -13,12 +10,11 @@ const LoginPage = lazy(() => import('./features/admin-dashboard/pages/LoginPage.
 const AdminLayout = lazy(() => import('./features/admin-dashboard/AdminLayout.jsx'));
 
 /**
- * App Router — Phân luồng 3 cổng độc lập theo đúng kiến trúc:
+ * App Router cho website Chủ quán và Quản trị:
  * - `/admin/login`     -> Trang đăng nhập chung (GuestRoute)
  * - `/register/owner`  -> Trang đăng ký chủ quán công khai (Phúc)
  * - `/admin/*`         -> Admin Dashboard (Vũ)
  * - `/owner/*`         -> Owner Portal B2B (Phúc)
- * - `/*`               -> Public Map Portal PWA (Bảo)
  */
 export default function App() {
   return (
@@ -28,7 +24,7 @@ export default function App() {
         <Route path="/register/owner" element={<PublicOwnerRegisterPage />} />
         <Route path="/admin/*" element={<AdminLayout />} />
         <Route path="/owner/*" element={<OwnerLayout />} />
-        <Route path="/*" element={<MapApp />} />
+        <Route path="*" element={<Navigate to="/admin/login" replace />} />
       </Routes>
     </Suspense>
   );

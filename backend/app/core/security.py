@@ -9,6 +9,7 @@ import bcrypt
 import jwt
 from bson import ObjectId
 from bson.errors import InvalidId
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -172,19 +173,33 @@ async def get_current_user(
 # 2. Mã hóa đối xứng PII / CCCD (Phúc - Task 2.2)
 # ==========================================
 def encrypt_pii(raw_cccd: str) -> str:
-    """
-    TODO (Phúc - Task 2.2):
-    Mã hóa chuỗi CCCD bằng Fernet và trả về định dạng `v1:<encrypted_string>`.
-    """
-    raise NotImplementedError("TODO: Implement encrypt_pii")
+    """Encrypt CCCD at rest with an explicitly versioned Fernet token."""
+    if not isinstance(raw_cccd, str) or not raw_cccd.strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "CCCD không hợp lệ")
+    if not settings.FERNET_KEY:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "FERNET_KEY not configured")
+    try:
+        cipher = Fernet(settings.FERNET_KEY.encode("utf-8"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "FERNET_KEY is invalid") from exc
+    token = cipher.encrypt(raw_cccd.strip().encode("utf-8")).decode("ascii")
+    return f"v1:{token}"
 
 
 def decrypt_pii(encrypted_value: str) -> str:
-    """
-    TODO (Phúc - Task 2.2 / Vũ - Task 3.5):
-    Giải mã chuỗi `v1:<encrypted_string>` để Admin đối chiếu khi duyệt đơn.
-    """
-    raise NotImplementedError("TODO: Implement decrypt_pii")
+    """Decrypt a supported `v1:` Fernet token; never guess unknown versions."""
+    if not isinstance(encrypted_value, str) or not encrypted_value.startswith("v1:"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "CCCD cipher version không được hỗ trợ")
+    if not settings.FERNET_KEY:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "FERNET_KEY not configured")
+    try:
+        cipher = Fernet(settings.FERNET_KEY.encode("utf-8"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "FERNET_KEY is invalid") from exc
+    try:
+        return cipher.decrypt(encrypted_value[3:].encode("ascii")).decode("utf-8")
+    except (InvalidToken, UnicodeError, ValueError) as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Không thể giải mã CCCD") from exc
 
 
 # ==========================================

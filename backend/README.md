@@ -87,6 +87,13 @@ CORS_ORIGINS=http://localhost:5173
 ```
 
 Các biến JWT, Fernet và Super Admin phải được cấu hình riêng theo `.env.example`.
+Tạo khóa Fernet hợp lệ trong thư mục `backend/` bằng lệnh:
+
+```powershell
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Sao chép giá trị vào `FERNET_KEY` trong `.env`. Khóa phải là khóa Fernet chuẩn (32 byte được mã hóa URL-safe Base64); không dùng chuỗi tùy ý hoặc placeholder.
 
 **Không commit `.env`, mật khẩu hoặc API keys lên Git.** Không thay `FERNET_KEY` khi còn dữ liệu CCCD đã mã hóa cần sử dụng.
 

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+from starlette.datastructures import UploadFile
 from typing import Literal
 
-from app.modules.admin.registrations import list_registrations, reveal_cccd, review_registration
+from app.modules.admin.registrations import list_registrations, reveal_cccd, review_registration, search_registration_pois
 from app.modules.admin.poi_management import (list_pois, create_poi as create_master_poi,
                                                get_poi as get_master_poi, update_poi as update_master_poi,
                                                delete_poi as delete_master_poi, save_english as save_poi_english)
@@ -38,7 +39,7 @@ from app.modules.admin.schemas import (
     LoginRequest,
     LoginResponse,
     MessageResponse,
-    OwnerRegisterRequest,
+    RegistrationReviewRequest,
     RefreshRequest,
     ReviewDecisionRequest,
     POICreateRequest,
@@ -47,6 +48,8 @@ from app.modules.admin.schemas import (
     UserMe, ChangePasswordRequest, UserCreateRequest, UserUpdateRequest,
     ResetPasswordRequest, RoleCreateRequest, RoleUpdateRequest,
 )
+from app.modules.owner.schemas import OwnerRegisterRequest
+from app.modules.owner.service import MENU_IMAGE_MAX_BYTES, create_owner_registration
 from app.modules.admin.service import admin_service
 from app.modules.admin.audit import list_audit_events, fingerprint_login, write_audit_event
 from datetime import datetime
@@ -184,9 +187,38 @@ async def change_password(payload: ChangePasswordRequest, request: Request, resp
     return {"message": "Đổi mật khẩu thành công. Vui lòng đăng nhập lại."}
 
 
-@router.post("/auth/register-owner")
-async def register_owner(payload: OwnerRegisterRequest):
-    return {"status": "todo", "endpoint": "POST /api/v1/admin/auth/register-owner"}
+@router.post("/auth/register-owner", status_code=status.HTTP_201_CREATED)
+async def register_owner(payload: OwnerRegisterRequest, request: Request):
+    """Public owner onboarding; the account remains unverified until Admin review."""
+    return await create_owner_registration(payload, _client_ip(request))
+
+
+@router.post("/auth/register-owner/upload", status_code=status.HTTP_201_CREATED)
+async def register_owner_with_image(request: Request):
+    """Submit a registration and one local storefront photo together."""
+    ip = _client_ip(request)
+    if not await login_attempt_allowed("owner-registration-photo", ip):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Vui lòng thử gửi lại hồ sơ sau ít phút")
+    async with request.form(max_files=1, max_fields=1) as form:
+        raw_payload = form.get("payload")
+        photo = form.get("image")
+        if not isinstance(raw_payload, str) or not isinstance(photo, UploadFile):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Cần thông tin hồ sơ và ảnh mặt tiền")
+        if len(raw_payload) > 16 * 1024:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Thông tin hồ sơ quá dài")
+        try:
+            payload = OwnerRegisterRequest.model_validate_json(raw_payload)
+        except ValidationError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                exc.errors(include_url=False, include_input=False, include_context=False),
+            ) from exc
+        content = await photo.read(MENU_IMAGE_MAX_BYTES + 1)
+        if not content:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Ảnh mặt tiền trống")
+        if len(content) > MENU_IMAGE_MAX_BYTES:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Ảnh vượt quá 5 MB")
+    return await create_owner_registration(payload, ip, storefront_image=content)
 
 
 # ==========================================
@@ -305,15 +337,28 @@ async def show_owner_cccd(
     return await reveal_cccd(reg_id, user, _client_ip(request))
 
 
+@router.get("/registrations/{reg_id}/poi-candidates")
+async def find_registration_pois(
+    reg_id: str,
+    name: str = Query("", max_length=180),
+    address: str = Query("", max_length=400),
+    _: dict = Depends(require_permission("user:update")),
+    __: dict = Depends(require_permission("poi:read")),
+):
+    return await search_registration_pois(reg_id, name, address)
+
+
 @router.post("/registrations/{reg_id}/review")
 async def review_owner_registration(
     reg_id: str,
-    decision: ReviewDecisionRequest,
+    decision: RegistrationReviewRequest,
     request: Request,
     user: dict = Depends(require_permission("user:update")),
 ):
-    """Phê duyệt (bật `is_poi_owner_verified`) hoặc Từ chối (bắt buộc `admin_note`)."""
-    return await review_registration(reg_id, decision.action, decision.admin_note, user, _client_ip(request))
+    """Duyệt và gắn quán, bổ sung liên kết cho hồ sơ cũ hoặc từ chối hồ sơ."""
+    return await review_registration(
+        reg_id, decision.action, decision.admin_note, user, _client_ip(request), decision.poi_id, decision.draft
+    )
 
 
 @router.get("/submissions")

@@ -175,7 +175,7 @@ async def get_poi(poi_id):
     return serialize_poi(doc, await gate_for(pid))
 
 
-async def create_poi(payload: POICreateRequest, user, ip):
+async def insert_poi(payload: POICreateRequest, user, ip, *, session, owner_id=None):
     db = get_db()
     if payload.is_active:
         raise HTTPException(409, {"message": "Không thể công khai POI mới khi chưa có tiếng Anh và audio", "reasons": localized_ready(None)["reasons"]})
@@ -185,12 +185,19 @@ async def create_poi(payload: POICreateRequest, user, ip):
     doc.update({"is_active": False, "slug": f"{slugify(payload.name)}-{str(ObjectId())[:8]}",
                 "revision": 1, "created_at": stamp, "updated_at": stamp})
     from app.modules.admin.audit import write_audit_event
+    if owner_id is not None:
+        doc["owner_id"] = owner_id
+    result = await db["poi"].insert_one(doc, session=session)
+    version = await bump_dataset(session=session)
+    await write_audit_event(user["id"], "poi.create", f"poi:{result.inserted_id}", ip,
+                            {"dataset_version": version}, session=session)
+    return result.inserted_id
+
+
+async def create_poi(payload: POICreateRequest, user, ip):
     async with mongo_transaction() as tx:
-        result = await db["poi"].insert_one(doc, session=tx)
-        version = await bump_dataset(session=tx)
-        await write_audit_event(user["id"], "poi.create", f"poi:{result.inserted_id}", ip,
-                                {"dataset_version": version}, session=tx)
-    return await get_poi(str(result.inserted_id))
+        poi_id = await insert_poi(payload, user, ip, session=tx)
+    return await get_poi(str(poi_id))
 
 
 async def update_poi(poi_id, payload: POIUpdateRequest, user, ip):

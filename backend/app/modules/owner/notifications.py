@@ -21,13 +21,16 @@ def serialize(doc):
             "created_at": doc["created_at"].isoformat() if doc.get("created_at") else None}
 
 
-async def list_notifications(user, limit=50, skip=0):
+async def list_notifications(user, limit=50, skip=0, is_read=None):
     db = get_db()
     query = owner_query(user)
-    total = await db["owner_notifications"].count_documents(query)
-    unread = await db["owner_notifications"].count_documents({**query, "is_read": False})
-    docs = [d async for d in db["owner_notifications"].find(query)
-            .sort("created_at", -1).skip(skip).limit(limit)]
+    collection = db["owner_notifications"]
+    unread = await collection.count_documents({**query, "is_read": {"$ne": True}})
+    if is_read is not None:
+        query["is_read"] = True if is_read else {"$ne": True}
+    total = await collection.count_documents(query)
+    docs = [d async for d in collection.find(query)
+            .sort([("created_at", -1), ("_id", -1)]).skip(skip).limit(limit)]
     return {"items": [serialize(d) for d in docs], "total": total, "unread_count": unread}
 
 

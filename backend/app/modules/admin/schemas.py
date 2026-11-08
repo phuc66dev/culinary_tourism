@@ -92,6 +92,7 @@ class ReviewDecisionRequest(BaseModel):
     admin_note: Optional[str] = None
     expected_revision: Optional[int] = None  # dùng cho review submission chống stale diff
 
+
 # Task 3.4: only allow editable POI fields; never accept Mongo operators / owner_id / IDs.
 from typing import Literal
 from pydantic import ConfigDict, field_validator
@@ -130,6 +131,21 @@ class POICreateRequest(BaseModel):
         if any(not isinstance(image, str) or len(image) > 2048 or not image.strip() for image in images):
             raise ValueError("Đường dẫn ảnh không hợp lệ")
         return images
+
+
+class RegistrationPOIDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    ward: str = Field(min_length=1, max_length=80)
+    location: POILocation
+    original_description: str = Field(min_length=1, max_length=8000)
+
+
+class RegistrationReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["approve", "reject"]
+    admin_note: Optional[str] = None
+    poi_id: Optional[str] = Field(default=None, min_length=24, max_length=24)
+    draft: RegistrationPOIDraft | None = None
 
 
 class POIUpdateRequest(BaseModel):

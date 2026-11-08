@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # Database & Redis
-    MONGO_URI: str = "mongodb://localhost:27017"
+    MONGO_URI: str = "mongodb://localhost:27017/?directConnection=true"
     DB_NAME: str = "quan4_culinary"
     REDIS_URL: str = "redis://localhost:6379/0"
 
@@ -21,9 +21,22 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_SECRET: str = "dev_refresh_secret_change_in_prod"
     SECRET_KEY: str = "dev_secret_key"
     FERNET_KEY: str = ""
+    GOOGLE_CLIENT_ID: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    JWT_ALGORITHM: str = "HS256"
+    # Cookie httpOnly (NFR-06). Chrome/Firefox/Edge chấp nhận Secure cookie trên localhost;.
+    COOKIE_SECURE: bool = True
+    COOKIE_SAMESITE: str = "lax"
+    COOKIE_DOMAIN: str | None = None
     PII_RETENTION_DAYS: int = 180
+
+    # SMTP / Email Verification
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASS: str = ""
+    FROM_EMAIL: str = ""
 
     # Bootstrap
     SUPERADMIN_BOOTSTRAP_MODE: str = "auto"
@@ -51,6 +64,14 @@ class Settings(BaseSettings):
     # Static Paths
     STATIC_DIR: str = "app/static"
     MAP_PACK_DATA_DIR: str = "app/static/maps"
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV.lower() in {"production", "prod"}
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

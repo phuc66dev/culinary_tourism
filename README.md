@@ -79,11 +79,11 @@ python -m venv .venv
 # macOS/Linux:
 # source .venv/bin/activate
 
-pip install -r requirements.txt
-cp .env.example .env
+C
 
 # Chạy server phát triển:
 uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 - Swagger API Docs: `http://localhost:8000/docs`
 - Health Check: `http://localhost:8000/health`

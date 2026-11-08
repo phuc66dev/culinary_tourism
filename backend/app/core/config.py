@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_SECRET: str = "dev_refresh_secret_change_in_prod"
     SECRET_KEY: str = "dev_secret_key"
     FERNET_KEY: str = ""
+    GOOGLE_CLIENT_ID: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     JWT_ALGORITHM: str = "HS256"
@@ -29,6 +30,13 @@ class Settings(BaseSettings):
     COOKIE_SAMESITE: str = "lax"
     COOKIE_DOMAIN: str | None = None
     PII_RETENTION_DAYS: int = 180
+
+    # SMTP / Email Verification
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASS: str = ""
+    FROM_EMAIL: str = ""
 
     # Bootstrap
     SUPERADMIN_BOOTSTRAP_MODE: str = "auto"

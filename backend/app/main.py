@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 from pathlib import Path
 import logging
 
@@ -11,6 +12,7 @@ from app.core.config import settings
 from app.core.database import close_db, connect_db, ping_db
 from app.modules.admin.service import admin_service
 from app.modules.audio.task_manager import audio_task_manager
+from app.modules.owner.service import purge_expired_registration_pii
 
 # Import 10 Router Lanes + Mobile Router & WebSocket
 from app.modules.content.router import router as content_router
@@ -29,6 +31,19 @@ from app.modules.runtime_observability.router import router as runtime_observabi
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+logger = logging.getLogger("quan4.main")
+
+
+async def _owner_pii_retention_worker() -> None:
+    """Redact expired CCCD ciphertext at startup and once per day."""
+    while True:
+        try:
+            redacted = await purge_expired_registration_pii()
+            if redacted:
+                logger.info("Redacted expired owner identity records: %s", redacted)
+        except Exception:  # noqa: BLE001
+            logger.exception("Owner PII retention cleanup failed")
+        await asyncio.sleep(24 * 60 * 60)
 
 _INSECURE_DEFAULTS = {
     "dev_jwt_secret_change_in_prod",
@@ -89,9 +104,14 @@ async def lifespan(app: FastAPI):
     await admin_service.ensure_super_admin()
     await audio_task_manager.recover()
     audio_task_manager.start_supervisor()  # Reclaim expired leases after a crash, not only at startup.
-    yield
-    await audio_task_manager.shutdown()
-    await close_db()
+    pii_retention_task = asyncio.create_task(_owner_pii_retention_worker())
+    try:
+        yield
+    finally:
+        pii_retention_task.cancel()
+        await asyncio.gather(pii_retention_task, return_exceptions=True)
+        await audio_task_manager.shutdown()
+        await close_db()
 
 
 _OPENAPI_TAGS = [

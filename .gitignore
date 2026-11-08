@@ -43,6 +43,8 @@ frontend/.env
 # =========================
 backend/app/static/audio/*.mp3
 backend/app/static/images/poi/*
+backend/app/static/images/menu/
+backend/app/static/images/storefront/
 !backend/app/static/audio/.gitkeep
 !backend/app/static/images/poi/.gitkeep
 !backend/app/static/maps/.gitkeep
@@ -57,3 +59,6 @@ data/maps/*.pmtiles
 *.swo
 .DS_Store
 Thumbs.db
+
+# Personal backend startup guide
+/backend/RUN_BACKEND_LOCAL.md

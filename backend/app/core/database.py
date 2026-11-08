@@ -23,7 +23,7 @@ COLLECTIONS = {
     "OWNER_REGISTRATIONS": "poi_owner_registrations",
     "POI_SUBMISSIONS": "poi_submissions",
     "MENU_ITEMS": "menu_items",
-    "NOTIFICATIONS": "notifications",
+    "NOTIFICATIONS": "owner_notifications",
     "AUDIO_TASKS": "audio_tasks",
     "AUDIT_LOGS": "audit_logs",
     "SYSTEM_META": "system_meta",
@@ -114,13 +114,18 @@ async def ensure_indexes(database: Any) -> None:
         [("status", 1), ("created_at", -1)], name="status_created"
     )
     await database["poi_owner_registrations"].create_index("user_id", name="user_id")
+    await database["poi_owner_registrations"].create_index("cccd_expires_at", sparse=True, name="cccd_expires_at")
     await database["poi_submissions"].create_index(
         [("status", 1), ("created_at", -1)], name="status_created"
     )
     await database["poi_submissions"].create_index("poi_id", name="poi_id")
     await database["menu_items"].create_index("poi_id", name="poi_id")
-    await database["notifications"].create_index(
+    await database["menu_items"].create_index([("owner_id", 1), ("poi_id", 1)], name="owner_poi_menu")
+    await database["owner_notifications"].create_index(
         [("user_id", 1), ("is_read", 1), ("created_at", -1)], name="user_read_created"
+    )
+    await database["ai_usage_limits"].create_index(
+        [("user_id", 1), ("date", 1)], unique=True, name="owner_ai_daily_unique"
     )
 
     # --- audio_tasks / audit_logs ---

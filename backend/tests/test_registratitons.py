@@ -38,6 +38,19 @@ async def make_registration(fernet, n=1, status="pending", cccd=CCCD, with_ciphe
     return str(res.inserted_id), user.inserted_id
 
 
+DRAFT = {
+    "ward": "Phường 10",
+    "location": {"type": "Point", "coordinates": [106.703, 10.76]},
+    "original_description": "Quán phục vụ các món ăn địa phương.",
+}
+
+
+async def make_poi(name="Quán Số 1", address="1 Vĩnh Khánh, Quận 4", **fields):
+    doc = {"name": name, "address": address, "is_active": False, **fields}
+    result = await database.get_db()["poi"].insert_one(doc)
+    return result.inserted_id
+
+
 async def admin_login(client):
     r = await client.post(LOGIN, json={"email": settings.SUPERADMIN_EMAIL, "password": settings.SUPERADMIN_PASSWORD})
     assert r.status_code == 200
@@ -102,15 +115,26 @@ async def test_reveal_cccd_errors(client, fernet, monkeypatch):
 async def test_approve_sets_verified_flag_and_notifies(client, fernet):
     rid, uid = await make_registration(fernet)
     await admin_login(client)
-    r = await client.post(f"{BASE}/{rid}/review", json={"action": "approve", "admin_note": "  Hồ sơ hợp lệ  "})
-    assert r.status_code == 200 and r.json() == {"id": rid, "status": "approved"}
+    pid = await make_poi()
+    r = await client.post(f"{BASE}/{rid}/review", json={
+        "action": "approve", "admin_note": "  Hồ sơ hợp lệ  ", "poi_id": str(pid),
+    })
+    assert r.status_code == 200 and r.json() == {"id": rid, "status": "approved", "poi_id": str(pid)}
     db = database.get_db()
     assert (await db["users"].find_one({"_id": uid}))["is_poi_owner_verified"] is True
     reg = await db["poi_owner_registrations"].find_one({"_id": ObjectId(rid)})
     assert reg["status"] == "approved" and reg["admin_note"] == "Hồ sơ hợp lệ" and reg["reviewed_by"] and reg["reviewed_at"]
+    assert reg["linked_poi_id"] == pid
+    assert (await db["poi"].find_one({"_id": pid}))["owner_id"] == uid
+    assert await db["poi"].count_documents({}) == 1
     note = await db["owner_notifications"].find_one({"user_id": uid})
     assert note["is_read"] is False and "duyệt" in note["message"]
     assert await db["audit_logs"].count_documents({"action": "owner.registration_approve"}) == 1
+    response = await client.post(LOGIN, json={"email": "owner1@t.vn", "password": "Passw0rd!"})
+    assert response.status_code == 200
+    response = await client.get("/api/v1/owner/pois/me")
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [str(pid)]
 
 
 async def test_reject_requires_reason_and_notifies_owner(client, fernet):
@@ -132,7 +156,7 @@ async def test_double_review_and_bad_input(client, fernet):
     await admin_login(client)
     assert (await client.post(f"{BASE}/{rid}/review", json={"action": "maybe"})).status_code == 422
     assert (await client.post(f"{BASE}/{ObjectId()}/review", json={"action": "approve"})).status_code == 404
-    assert (await client.post(f"{BASE}/{rid}/review", json={"action": "approve"})).status_code == 200
+    assert (await client.post(f"{BASE}/{rid}/review", json={"action": "approve", "draft": DRAFT})).status_code == 200
     assert (await client.post(f"{BASE}/{rid}/review", json={"action": "reject", "admin_note": "đổi ý"})).status_code == 409
     assert await database.get_db()["owner_notifications"].count_documents({}) == 1  # lần 2 không gửi thêm thông báo
 
@@ -154,3 +178,58 @@ async def test_cccd_rejects_unsupported_cipher_version(client, fernet):
     response = await client.get(f"{BASE}/{rid}/cccd")
     assert response.status_code == 422
     assert await database.get_db()["audit_logs"].count_documents({"action": "owner.cccd_reveal"}) == 0
+
+
+async def test_search_by_name_or_address_and_block_other_owner(client, fernet):
+    rid, uid = await make_registration(fernet)
+    pid = await make_poi(owner_id=ObjectId())
+    other = await make_poi(name="Quán khác")
+    await admin_login(client)
+    response = await client.get(f"{BASE}/{rid}/poi-candidates", params={"name": "quan so", "address": "vinh khanh"})
+    assert response.status_code == 200
+    assert response.json()["has_exact_match"] is True
+    assert {item["id"]: item["can_link"] for item in response.json()["items"]} == {str(pid): False}
+    by_address = await client.get(f"{BASE}/{rid}/poi-candidates", params={"address": "vinh khanh"})
+    assert {item["id"] for item in by_address.json()["items"]} == {str(pid), str(other)}
+    blocked = await client.post(f"{BASE}/{rid}/review", json={"action": "approve", "poi_id": str(pid)})
+    assert blocked.status_code == 409
+    assert (await database.get_db()["users"].find_one({"_id": uid}))["is_poi_owner_verified"] is False
+
+
+async def test_draft_uses_registration_data_stays_hidden_and_blocks_duplicates(client, fernet):
+    rid, uid = await make_registration(fernet)
+    await admin_login(client)
+    assert (await client.post(f"{BASE}/{rid}/review", json={"action": "approve"})).status_code == 422
+    response = await client.post(f"{BASE}/{rid}/review", json={"action": "approve", "draft": DRAFT})
+    assert response.status_code == 200
+    pid = ObjectId(response.json()["poi_id"])
+    db = database.get_db()
+    poi = await db["poi"].find_one({"_id": pid})
+    assert poi["name"] == "Quán Số 1" and poi["address"] == "1 Vĩnh Khánh, Quận 4"
+    assert poi["is_active"] is False and poi["owner_id"] == uid
+    assert poi["images"] == ["/static/images/poi/x.webp"]
+    another_id, another_owner = await make_registration(fernet, n=2)
+    await db["poi_owner_registrations"].update_one(
+        {"_id": ObjectId(another_id)}, {"$set": {"poi_name": "quan  so 1", "poi_address": "1 vinh khanh, quan 4"}},
+    )
+    response = await client.post(f"{BASE}/{another_id}/review", json={"action": "approve", "draft": DRAFT})
+    assert response.status_code == 409
+    assert await db["poi"].count_documents({}) == 1
+    assert (await db["users"].find_one({"_id": another_owner}))["is_poi_owner_verified"] is False
+
+
+async def test_attach_poi_to_previously_approved_registration(client, fernet):
+    rid, uid = await make_registration(fernet, status="approved")
+    db = database.get_db()
+    await db["poi_owner_registrations"].update_one(
+        {"_id": ObjectId(rid)}, {"$set": {"admin_note": "Đã xác minh"}},
+    )
+    pid = await make_poi()
+    await admin_login(client)
+    payload = {"action": "approve", "poi_id": str(pid)}
+    assert (await client.post(f"{BASE}/{rid}/review", json=payload)).status_code == 200
+    assert (await client.post(f"{BASE}/{rid}/review", json=payload)).status_code == 409
+    reg = await db["poi_owner_registrations"].find_one({"_id": ObjectId(rid)})
+    assert reg["admin_note"] == "Đã xác minh" and reg["linked_poi_id"] == pid
+    assert (await db["poi"].find_one({"_id": pid}))["owner_id"] == uid
+    assert await db["owner_notifications"].count_documents({"user_id": uid}) == 1

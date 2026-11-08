@@ -1,6 +1,6 @@
 # Hệ Thống Du Lịch Ẩm Thực Quận 4 (Quan4 Culinary Tourism)
 
-> **Full-stack Offline-First PWA:** Bản đồ tương tác Vector (MapLibre + PMTiles), Thuyết minh âm thanh tự động theo vị trí (GPS Geofencing + 4-Tier Audio), Cổng Chủ quán tích hợp AI Advisor (Gemini 2.5 Flash) và Hệ thống Quản trị RBAC.
+> Website dành cho chủ quán và quản trị viên, gồm Cổng Chủ quán tích hợp AI Advisor và Hệ thống Quản trị RBAC. Ứng dụng mobile dành cho du khách phát triển ở repo riêng và dùng API, bản đồ, âm thanh cùng các dịch vụ từ backend trong repo này.
 
 ---
 
@@ -29,21 +29,14 @@ culinary_tourism/
 │   ├── .env.example
 │   └── requirements.txt
 │
-├── frontend/                       # React 19 + Vite 7 PWA + TailwindCSS
-│   ├── public/
-│   │   └── manifest.json           # Cấu hình Web App Manifest
+├── frontend/                       # React 19 + Vite + TailwindCSS
 │   ├── src/
 │   │   ├── api/                    # Axios Client (httpOnly Cookie credentials)
-│   │   ├── db/                     # IndexedDB Wrapper (Quan4DB v2)
-│   │   ├── store/                  # Zustand Stores (poiStore, authStore)
-│   │   ├── services/               # Core Client Engines (Location, Geofence, Narration, Hotset, Packs)
-│   │   ├── hooks/                  # Custom Hooks (useGeofence)
-│   │   ├── features/               # Phân tách theo 3 phân hệ của 3 thành viên
-│   │   │   ├── public-app/         # [Bảo] Giao diện Du khách (MapApp, Splash, BottomSheet, Player)
+│   │   ├── store/                  # Zustand Auth Store
+│   │   ├── features/               # Hai phân hệ web
 │   │   │   ├── owner-portal/       # [Phúc] Cổng Chủ quán B2B & AI Advisor
 │   │   │   └── admin-dashboard/    # [Vũ] Bảng điều khiển Quản trị viên
-│   │   ├── sw.js                   # Service Worker (Workbox injectManifest + Language Sharding)
-│   │   ├── App.jsx                 # React Router phân luồng 3 cổng
+│   │   ├── App.jsx                 # React Router cho website chủ quán và quản trị
 │   │   └── main.jsx                # Frontend Entry Point
 │   ├── .env.example
 │   ├── package.json
@@ -64,7 +57,7 @@ culinary_tourism/
 
 | Thành viên | Nhánh Git (`branch`) | Thư mục Frontend chính | Module Backend chính |
 | :--- | :--- | :--- | :--- |
-| **Bảo** *(Tourist PWA)* | `feature/tourist-pwa` | `frontend/src/features/public-app/`<br>`frontend/src/services/`<br>`frontend/src/sw.js` | `content`, `localization`, `maps`, `ui_i18n` |
+| **Bảo** *(Ứng dụng du khách)* | Repo mobile riêng | Ứng dụng mobile | Dùng API của các module content, localization, maps và ui_i18n |
 | **Phúc** *(Owner Portal)* | `feature/owner-portal` | `frontend/src/features/owner-portal/` | `owner`, `ai_advisor` |
 | **Vũ** *(Admin & Core)* | `feature/admin-core` | `frontend/src/features/admin-dashboard/` | `core`, `admin`, `audio`, `analytics`, `runtime_observability` |
 
@@ -95,7 +88,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 - Swagger API Docs: `http://localhost:8000/docs`
 - Health Check: `http://localhost:8000/health`
 
-### Bước 3: Thiết lập Frontend (React + Vite PWA)
+### Bước 3: Thiết lập Frontend (React + Vite)
 ```bash
 cd frontend
 npm install
@@ -105,3 +98,7 @@ cp .env.example .env
 npm run dev
 ```
 - Ứng dụng chạy tại: `http://localhost:5173`
+- Đăng nhập chung: /admin/login
+- Đăng ký chủ quán: /register/owner
+- Cổng chủ quán: /owner
+- Quản trị: /admin

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 /**
- * Axios Client dùng chung cho cả 3 phân hệ.
+ * Axios Client dùng chung cho cổng Chủ quán và Quản trị.
  * Bật `withCredentials: true` để tự động đính kèm httpOnly Cookie (`access_token`, `refresh_token`).
  */
 const axiosClient = axios.create({

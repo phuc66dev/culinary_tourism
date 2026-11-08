@@ -3,6 +3,7 @@ import axiosClient from '../../../api/axiosClient.js';
 import { useAuthStore } from '../../../store/authStore.js';
 import { assetUrl, apiErrorMessage } from '../utils/assetUrl.js';
 import { hasPermission } from '../hooks/useAdminSession.js';
+import RegistrationPOIAssignment from '../components/RegistrationPOIAssignment.jsx';
 import { formatVietnamDateTime } from '../utils/vietnamTime.js';
 
 /**
@@ -10,7 +11,7 @@ import { formatVietnamDateTime } from '../utils/vietnamTime.js';
  * Phụ trách: Vũ (Task 3.5)
  *
  * - Xem thông tin quán + ảnh mặt tiền; CCCD chỉ giải mã khi bấm "Xem CCCD" (có xác nhận, ghi audit, tự ẩn sau 30s).
- * - "Phê duyệt" → backend bật is_poi_owner_verified. "Từ chối" → bắt buộc nhập lý do gửi về chủ quán.
+ * - Phê duyệt kèm quán có sẵn hoặc quán nháp. Từ chối yêu cầu lý do gửi về chủ quán.
  */
 const TABS = [
   ['pending', 'Chờ duyệt'],
@@ -50,6 +51,9 @@ function StorefrontImage({ src, alt }) {
 export default function RegistrationsPage() {
   const user = useAuthStore((s) => s.user);
   const canReview = hasPermission(user, 'user:update');
+  const canSearchPOI = hasPermission(user, 'poi:read');
+  const canLinkPOI = hasPermission(user, 'poi:update');
+  const canCreatePOI = hasPermission(user, 'poi:create');
 
   const [tab, setTab] = useState('pending');
   const [page, setPage] = useState(0);
@@ -113,15 +117,14 @@ export default function RegistrationsPage() {
     }
   }
 
-  async function review(action) {
+  async function review(action, assignment = {}) {
     if (submitting) return;
     if (action === 'reject' && !note.trim()) { setActionError('Vui lòng nhập lý do từ chối để gửi về chủ quán.'); return; }
-    if (action === 'approve' && !window.confirm(`Phê duyệt "${selected.poi_name}"? Chủ quán sẽ được cấp quyền quản lý quán.`)) return;
     setSubmitting(true);
     setActionError('');
     try {
-      await axiosClient.post(`/admin/registrations/${selected.id}/review`, { action, admin_note: note.trim() || null });
-      setToast(action === 'approve' ? `Đã phê duyệt "${selected.poi_name}".` : `Đã từ chối "${selected.poi_name}" và gửi lý do cho chủ quán.`);
+      await axiosClient.post(`/admin/registrations/${selected.id}/review`, { action, admin_note: note.trim() || null, ...assignment });
+      setToast(action === 'approve' ? `Đã xử lý hồ sơ và gắn quán cho "${selected.poi_name}".` : `Đã từ chối "${selected.poi_name}" và gửi lý do cho chủ quán.`);
       setSelectedId(null);
       await load();
     } catch (e) {
@@ -260,13 +263,20 @@ export default function RegistrationsPage() {
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    <button onClick={() => review('approve')} disabled={submitting} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
-                      {submitting ? 'Đang xử lý…' : 'Phê duyệt'}
-                    </button>
                     <button onClick={() => setRejecting(true)} disabled={submitting} className="rounded-lg bg-red-100 px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-200">Từ chối</button>
                   </div>
                 )
               )}
+
+              {canReview && !rejecting && !selected.linked_poi_id && ['pending', 'approved'].includes(selected.status) && (
+                canSearchPOI && (canLinkPOI || canCreatePOI) ? (
+                  <RegistrationPOIAssignment key={selected.id} registration={selected}
+                    canLink={canLinkPOI} canCreate={canCreatePOI} busy={submitting}
+                    onApprove={(assignment) => review('approve', assignment)} />
+                ) : <p className="text-sm text-slate-600">Cần quyền đọc quán và quyền cập nhật hoặc tạo quán để hoàn tất hồ sơ.</p>
+              )}
+
+              {selected.linked_poi_id && <p className="text-sm font-medium text-green-800">Đã gắn quán trong POI Master.</p>}
 
               {selected.status !== 'pending' && (
                 <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">

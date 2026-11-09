@@ -1,15 +1,16 @@
-import React, { useEffect, useId, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import axiosClient from "../../../api/axiosClient.js";
 import {
   apiErrorMessage,
   assetUrl,
 } from "../../admin-dashboard/utils/assetUrl.js";
 import toast from "react-hot-toast";
-import { FiMapPin, FiPlus, FiZap } from "react-icons/fi";
+import { FiLoader, FiMapPin, FiPlus } from "react-icons/fi";
+import { LuSparkles } from "react-icons/lu";
 import OwnerMenuTable from "../components/OwnerMenuTable.jsx";
 import MenuImagePicker from '../components/MenuImagePicker.jsx';
 import OwnerDialog from "../components/OwnerDialog.jsx";
-import AIAdvisorModal from "../components/AIAdvisorModal.jsx";
+import ProposalMediaFields from "../components/ProposalMediaFields.jsx";
 
 const input =
   "mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100";
@@ -20,9 +21,7 @@ const blankProposal = {
   ward: "",
   category: "",
   original_description: "",
-  images: "",
-  longitude: "",
-  latitude: "",
+  coordinates: null,
 };
 
 function parseTags(value) {
@@ -31,6 +30,20 @@ function parseTags(value) {
     .map((tag) => tag.trim())
     .filter(Boolean);
 }
+
+function coordinatesFromPoi(poi) {
+  const coordinates = poi.location?.coordinates;
+  if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+  const [rawLongitude, rawLatitude] = coordinates;
+  if (rawLongitude == null || rawLatitude == null
+    || String(rawLongitude).trim() === "" || String(rawLatitude).trim() === "") return null;
+  const longitude = Number(rawLongitude);
+  const latitude = Number(rawLatitude);
+  return Math.abs(longitude) <= 180 && Math.abs(latitude) <= 90
+    ? [longitude, latitude]
+    : null;
+}
+
 function proposalFromPoi(poi) {
   return {
     name: poi.name || "",
@@ -38,15 +51,7 @@ function proposalFromPoi(poi) {
     ward: poi.ward || "",
     category: poi.category || "",
     original_description: poi.original_description || "",
-    images: (poi.images || []).join("\n"),
-    longitude:
-      poi.location?.coordinates?.[0] == null
-        ? ""
-        : String(poi.location.coordinates[0]),
-    latitude:
-      poi.location?.coordinates?.[1] == null
-        ? ""
-        : String(poi.location.coordinates[1]),
+    coordinates: coordinatesFromPoi(poi),
   };
 }
 
@@ -69,8 +74,17 @@ export default function OwnerPOIPage({
   const [menuError, setMenuError] = useState("");
   const menuFormId = useId();
   const [proposal, setProposal] = useState(blankProposal);
+  const [proposalPhoto, setProposalPhoto] = useState(null);
+  const [locationBusy, setLocationBusy] = useState(false);
   const [proposalBusy, setProposalBusy] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
+  const [generatingDescription, setGeneratingDescription] = useState(false);
+  const [descriptionError, setDescriptionError] = useState("");
+  const [ownerHighlight, setOwnerHighlight] = useState("");
+  const [contextQuestion, setContextQuestion] = useState("");
+  const lastGeneration = useRef(null);
+  const highlightField = useRef(null);
+  const descriptionId = useId();
+  const highlightId = useId();
 
   useEffect(() => {
     if (!selected?.id) {
@@ -214,9 +228,44 @@ export default function OwnerPOIPage({
     }
   }
 
+  async function generateDescription() {
+    if (!selected || generatingDescription || proposalBusy) return;
+    setGeneratingDescription(true);
+    setDescriptionError("");
+    setContextQuestion("");
+    const draft = proposal.original_description.trim();
+    const notes = draft === lastGeneration.current?.description
+      ? lastGeneration.current.notes
+      : draft;
+    try {
+      const { data } = await axiosClient.post("/ai/enhance-description", {
+        poi_id: selected.id,
+        poi_name: selected.name,
+        owner_highlight: ownerHighlight.trim(),
+        raw_notes: notes,
+      }, { timeout: 75000 });
+      lastGeneration.current = { description: data.enhanced_description.trim(), notes };
+      setProposal((current) => ({
+        ...current,
+        original_description: data.enhanced_description,
+      }));
+      toast.success("Đã chèn gợi ý. Hãy đọc lại mô tả trước khi gửi.");
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      if (detail?.code === "ai_context_required") {
+        setContextQuestion(detail.message);
+        highlightField.current?.focus();
+      } else {
+        setDescriptionError(apiErrorMessage(err, "Không tạo được mô tả. Vui lòng thử lại."));
+      }
+    } finally {
+      setGeneratingDescription(false);
+    }
+  }
+
   async function submitProposal(event) {
     event.preventDefault();
-    if (!selected || proposalBusy) return;
+    if (!selected || proposalBusy || generatingDescription || locationBusy) return;
     const proposed_changes = {};
     ["name", "address", "ward", "category", "original_description"].forEach(
       (key) => {
@@ -225,50 +274,30 @@ export default function OwnerPOIPage({
           proposed_changes[key] = next;
       },
     );
-    const images = proposal.images
-      .split(/[\n,]/)
-      .map((url) => url.trim())
-      .filter(Boolean);
-    if (JSON.stringify(images) !== JSON.stringify(selected.images || []))
-      proposed_changes.images = images;
-    const originalCoordinates = selected.location?.coordinates || [];
-    const coordinatesChanged =
-      proposal.longitude !== String(originalCoordinates[0] ?? "") ||
-      proposal.latitude !== String(originalCoordinates[1] ?? "");
-    if (coordinatesChanged) {
-      const longitude = Number(proposal.longitude);
-      const latitude = Number(proposal.latitude);
-      if (
-        !proposal.longitude.trim() ||
-        !proposal.latitude.trim() ||
-        !Number.isFinite(longitude) ||
-        longitude < -180 ||
-        longitude > 180 ||
-        !Number.isFinite(latitude) ||
-        latitude < -90 ||
-        latitude > 90
-      ) {
-        toast.error(
-          "Vui lòng nhập kinh độ từ -180 đến 180 và vĩ độ từ -90 đến 90.",
-        );
-        return;
-      }
+    const coordinates = proposal.coordinates;
+    const original = coordinatesFromPoi(selected) ?? [];
+    if (coordinates && (coordinates[0] !== original[0] || coordinates[1] !== original[1])) {
       proposed_changes.location = {
         type: "Point",
-        coordinates: [longitude, latitude],
+        coordinates,
       };
     }
-    if (!Object.keys(proposed_changes).length) {
+    if (!proposalPhoto && !Object.keys(proposed_changes).length) {
       toast.error("Chưa có thay đổi nào trong thông tin quán.");
       return;
     }
     setProposalBusy(true);
     setError("");
     try {
-      await axiosClient.post("/owner/submissions", {
-        poi_id: selected.id,
-        proposed_changes,
-      });
+      const payload = { poi_id: selected.id, proposed_changes };
+      if (proposalPhoto) {
+        const body = new FormData();
+        body.append("payload", JSON.stringify(payload));
+        body.append("image", proposalPhoto);
+        await axiosClient.post("/owner/submissions/with-photo", body);
+      } else {
+        await axiosClient.post("/owner/submissions", payload);
+      }
       setProposal(proposalFromPoi(selected));
       setDialog(null);
       toast.success(
@@ -384,6 +413,11 @@ export default function OwnerPOIPage({
                 className="admin-button-primary"
                 onClick={() => {
                   setProposal(proposalFromPoi(selected));
+                  setProposalPhoto(null);
+                  setDescriptionError("");
+                  setOwnerHighlight("");
+                  setContextQuestion("");
+                  lastGeneration.current = null;
                   setDialog("proposal");
                 }}
               >
@@ -462,11 +496,9 @@ export default function OwnerPOIPage({
       </OwnerDialog>
       <OwnerDialog
         open={dialog === "proposal"}
-        onClose={() => {
-          setDialog(null);
-          setAiOpen(false);
-        }}
-        busy={proposalBusy}
+        onClose={() => setDialog(null)}
+        busy={proposalBusy || generatingDescription || locationBusy}
+        className="owner-proposal-dialog"
         title="Đề xuất chỉnh sửa thông tin quán"
         description="Quản trị viên sẽ xét duyệt trước khi cập nhật."
       >
@@ -479,17 +511,6 @@ export default function OwnerPOIPage({
               value={proposal.name}
               onChange={(event) =>
                 setProposal({ ...proposal, name: event.target.value })
-              }
-            />
-          </label>
-          <label className="block text-sm font-medium text-slate-700">
-            Địa chỉ
-            <input
-              className={input}
-              maxLength={400}
-              value={proposal.address}
-              onChange={(event) =>
-                setProposal({ ...proposal, address: event.target.value })
               }
             />
           </label>
@@ -517,98 +538,86 @@ export default function OwnerPOIPage({
               />
             </label>
           </div>
-          <label className="block text-sm font-medium text-slate-700">
-            Mô tả
-            <textarea
-              rows="5"
-              maxLength={8000}
-              className={input + " resize-y"}
-              value={proposal.original_description}
-              onChange={(event) =>
-                setProposal({
-                  ...proposal,
-                  original_description: event.target.value,
-                })
-              }
-              placeholder="Mô tả món ăn, hương vị, trải nghiệm…"
-            />
-          </label>
-          <label className="block text-sm font-medium text-slate-700">
-            Ảnh quán{" "}
-            <span className="font-normal text-slate-500">
-              (mỗi đường dẫn một dòng, tối đa 20 ảnh)
-            </span>
-            <textarea
-              rows="3"
-              className={input + " resize-y"}
-              value={proposal.images}
-              onChange={(event) =>
-                setProposal({ ...proposal, images: event.target.value })
-              }
-              placeholder="https://example.com/anh-quan.jpg"
-            />
-          </label>
-          <fieldset className="grid gap-3 sm:grid-cols-2">
-            <legend className="mb-1 text-sm font-semibold text-slate-700">
-              Vị trí bản đồ (GeoJSON: kinh độ, vĩ độ)
-            </legend>
-            <label className="block text-sm font-medium text-slate-700">
-              Kinh độ
-              <input
-                type="number"
-                step="any"
-                min="-180"
-                max="180"
-                className={input}
-                value={proposal.longitude}
-                onChange={(event) =>
-                  setProposal({ ...proposal, longitude: event.target.value })
-                }
-              />
+          <div>
+            <label htmlFor={descriptionId} className="block text-sm font-medium text-slate-700">
+              Mô tả
             </label>
-            <label className="block text-sm font-medium text-slate-700">
-              Vĩ độ
-              <input
-                type="number"
-                step="any"
-                min="-90"
-                max="90"
-                className={input}
-                value={proposal.latitude}
+            <div className="relative">
+              <textarea
+                id={descriptionId}
+                rows="5"
+                maxLength={8000}
+                className={input + " relative block resize-y pb-12"}
+                value={proposal.original_description}
+                readOnly={generatingDescription}
                 onChange={(event) =>
-                  setProposal({ ...proposal, latitude: event.target.value })
+                  setProposal({
+                    ...proposal,
+                    original_description: event.target.value,
+                  })
                 }
+                placeholder="Mô tả món ăn, hương vị, trải nghiệm…"
               />
+              <button
+                type="button"
+                aria-label="Gợi ý mô tả bằng AI"
+                title="Gợi ý mô tả bằng AI"
+                aria-busy={generatingDescription}
+                disabled={proposalBusy || generatingDescription}
+                onClick={generateDescription}
+                className="absolute right-4 bottom-3 inline-flex size-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 disabled:opacity-65"
+              >
+                {generatingDescription
+                  ? <FiLoader aria-hidden="true" className="motion-safe:animate-spin" />
+                  : <LuSparkles aria-hidden="true" />}
+              </button>
+            </div>
+            <span className="sr-only" role="status">{generatingDescription ? "AI đang tạo mô tả." : ""}</span>
+            {descriptionError && <p className="mt-1.5 text-sm text-red-700" role="alert">{descriptionError}</p>}
+          </div>
+          <div>
+            <label htmlFor={highlightId} className="block text-sm font-medium text-slate-700">
+              Điểm đặc trưng của quán <span className="font-normal text-slate-500">(tùy chọn)</span>
             </label>
-          </fieldset>
+            <textarea
+              id={highlightId}
+              ref={highlightField}
+              rows="2"
+              maxLength={500}
+              className={input + " block resize-y"}
+              value={ownerHighlight}
+              readOnly={generatingDescription}
+              onChange={(event) => {
+                setOwnerHighlight(event.target.value);
+                if (event.target.value.trim()) setContextQuestion("");
+              }}
+              placeholder="Ví dụ: muốn giới thiệu bánh mì chảo ăn kèm nước mía."
+              aria-describedby={highlightId + "-hint"}
+            />
+            <p id={highlightId + "-hint"} role={contextQuestion ? "alert" : undefined}
+              className={`mt-1 text-xs ${contextQuestion ? "text-amber-800" : "text-slate-600"}`}>
+              {contextQuestion || "AI dùng thông tin quán, thực đơn và ghi chú bạn bổ sung để viết gợi ý."}
+            </p>
+          </div>
+          {dialog === "proposal" && (
+            <ProposalMediaFields
+              coverUrl={selected.images?.[0]}
+              photo={proposalPhoto}
+              onPhotoChange={setProposalPhoto}
+              address={proposal.address}
+              coordinates={proposal.coordinates}
+              onLocationChange={(changes) => setProposal((current) => ({ ...current, ...changes }))}
+              onLookupChange={setLocationBusy}
+              disabled={proposalBusy}
+            />
+          )}
           <button
-            disabled={proposalBusy}
+            disabled={proposalBusy || generatingDescription || locationBusy}
             className="w-full rounded-lg border border-orange-300 bg-orange-50 px-4 py-2.5 text-sm font-semibold text-orange-900 hover:bg-orange-100 disabled:opacity-50"
           >
             {proposalBusy ? "Đang gửi đề xuất…" : "Gửi quản trị viên xét duyệt"}
           </button>
         </form>
-        <button
-          type="button"
-          onClick={() => setAiOpen(true)}
-          className="mt-3 inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold"
-        >
-          <FiZap aria-hidden="true" /> Gợi ý mô tả bằng AI
-        </button>
-        {aiOpen && selected && (
-          <AIAdvisorModal
-            poi={selected}
-            onClose={() => setAiOpen(false)}
-            onInsert={(description) => {
-              setProposal((current) => ({
-                ...current,
-                original_description: description,
-              }));
-              setAiOpen(false);
-              toast.success("Đã chèn mô tả AI vào đề xuất.");
-            }}
-          />
-        )}
       </OwnerDialog>
     </div>
   );

@@ -357,7 +357,8 @@ async def review_owner_registration(
 ):
     """Duyệt và gắn quán, bổ sung liên kết cho hồ sơ cũ hoặc từ chối hồ sơ."""
     return await review_registration(
-        reg_id, decision.action, decision.admin_note, user, _client_ip(request), decision.poi_id, decision.draft
+        reg_id, decision.action, decision.admin_note, user, _client_ip(request), decision.poi_id, decision.draft,
+        poi_location=decision.poi_location,
     )
 
 

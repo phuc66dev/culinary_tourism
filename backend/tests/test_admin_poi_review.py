@@ -9,10 +9,36 @@ from bson import ObjectId
 
 from app.core import database
 from app.core.config import settings
+from app.core.security import hash_password
+from app.modules.owner import service as owner_service
 
 LOGIN = "/api/v1/admin/auth/login"
 POIS = "/api/v1/admin/pois"
 SUBS = "/api/v1/admin/submissions"
+
+
+async def test_owner_can_propose_cover_photo_without_updating_poi(client, monkeypatch, tmp_path):
+    db = database.get_db()
+    owner = (await db["users"].insert_one({
+        "email": "photo-owner@example.com", "password_hash": hash_password("TestOwner123!"),
+        "role": "poi_owner", "is_poi_owner_verified": True,
+    })).inserted_id
+    images = ["/static/images/old-cover.jpg", "/static/images/other.jpg"]
+    poi = (await db["poi"].insert_one({"owner_id": owner, "images": images})).inserted_id
+    assert (await client.post(LOGIN, json={
+        "email": "photo-owner@example.com", "password": "TestOwner123!",
+    })).status_code == 200
+    monkeypatch.setattr(owner_service, "IMAGE_DIR", tmp_path)
+
+    response = await client.post("/api/v1/owner/submissions/with-photo", data={
+        "payload": '{"poi_id":"' + str(poi) + '","proposed_changes":{}}',
+    }, files={"image": ("cover.png", b"\x89PNG\r\n\x1a\n" + b"sample", "image/png")})
+    assert response.status_code == 201, response.text
+    submission = await db["poi_submissions"].find_one({"_id": ObjectId(response.json()["id"])})
+    cover, other = submission["proposed_changes"]["images"]
+    assert other == images[1]
+    assert (tmp_path / "storefront" / cover.rsplit("/", 1)[1]).is_file()
+    assert (await db["poi"].find_one({"_id": poi}))["images"] == images
 
 
 async def login(client, admin_creds):

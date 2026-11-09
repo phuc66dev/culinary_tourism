@@ -19,7 +19,6 @@ edge-tts>=6.1.12
 deep-translator>=1.11.4
 
 # AI Advisor (Gemini 2.5 Flash / ProxyPal)
-google-generativeai>=0.8.3
 httpx>=0.27.2
 
 # Settings & Utilities

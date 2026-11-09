@@ -6,12 +6,13 @@ import {
   FiMapPin,
   FiUser,
 } from "react-icons/fi";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import axiosClient from "../../../api/axiosClient.js";
 import {
   apiErrorMessage,
   assetUrl,
 } from "../../admin-dashboard/utils/assetUrl.js";
+import OwnerAnalyticsSection from "../components/OwnerAnalyticsSection.jsx";
 
 const cards = [
   {
@@ -41,6 +42,8 @@ const cards = [
 ];
 
 export default function OwnerDashboardPage({ shops }) {
+  const [searchParams] = useSearchParams();
+  const demoAnalytics = import.meta.env.DEV && searchParams.get("demoAnalytics") === "1";
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -133,6 +136,10 @@ export default function OwnerDashboardPage({ shops }) {
           </Link>
         ))}
       </section>
+
+      {(data || demoAnalytics) && (
+        <OwnerAnalyticsSection shops={data?.pois ?? []} demo={demoAnalytics} />
+      )}
 
       <section className="rounded-xl border border-amber-100 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">

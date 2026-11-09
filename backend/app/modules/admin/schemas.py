@@ -146,6 +146,7 @@ class RegistrationReviewRequest(BaseModel):
     admin_note: Optional[str] = None
     poi_id: Optional[str] = Field(default=None, min_length=24, max_length=24)
     draft: RegistrationPOIDraft | None = None
+    poi_location: POILocation | None = None
 
 
 class POIUpdateRequest(BaseModel):

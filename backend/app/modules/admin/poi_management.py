@@ -175,14 +175,14 @@ async def get_poi(poi_id):
     return serialize_poi(doc, await gate_for(pid))
 
 
-async def insert_poi(payload: POICreateRequest, user, ip, *, session, owner_id=None):
+async def insert_poi(payload: POICreateRequest, user, ip, *, session, owner_id=None, publish_on_approval=False):
     db = get_db()
-    if payload.is_active:
+    if payload.is_active and not publish_on_approval:
         raise HTTPException(409, {"message": "Không thể công khai POI mới khi chưa có tiếng Anh và audio", "reasons": localized_ready(None)["reasons"]})
     stamp = now()
     doc = payload.model_dump(mode="python")
     doc["location"] = payload.location.model_dump(mode="python")
-    doc.update({"is_active": False, "slug": f"{slugify(payload.name)}-{str(ObjectId())[:8]}",
+    doc.update({"is_active": publish_on_approval, "slug": f"{slugify(payload.name)}-{str(ObjectId())[:8]}",
                 "revision": 1, "created_at": stamp, "updated_at": stamp})
     from app.modules.admin.audit import write_audit_event
     if owner_id is not None:

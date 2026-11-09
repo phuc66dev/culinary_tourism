@@ -3,6 +3,8 @@ from typing import Annotated, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.modules.admin.schemas import POILocation
+
 
 def _clean_tags(tags):
     clean = [tag.strip() for tag in tags]
@@ -22,6 +24,8 @@ class OwnerRegisterRequest(BaseModel):
     password: str = Field(min_length=12, max_length=72)
     poi_name: str = Field(min_length=1, max_length=180)
     poi_address: str = Field(min_length=1, max_length=400)
+    poi_location: POILocation | None = None
+    poi_ward: str | None = Field(default=None, min_length=1, max_length=80)
     cccd_number: str = Field(min_length=9, max_length=12, pattern=r"^(?:\d{9}|\d{12})$")
     storefront_image_url: Optional[str] = Field(default=None, max_length=2048)
 
@@ -71,3 +75,7 @@ class POISubmissionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     poi_id: str = Field(min_length=1, max_length=64)
     proposed_changes: dict = Field(min_length=1, max_length=10)
+
+
+class POIPhotoSubmissionRequest(POISubmissionRequest):
+    proposed_changes: dict = Field(default_factory=dict, max_length=10)

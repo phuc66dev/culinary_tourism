@@ -4,6 +4,7 @@ Phụ trách: Vũ (Core Infra)
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 class Settings(BaseSettings):
     # Runtime
@@ -59,11 +60,13 @@ class Settings(BaseSettings):
     HOTSET_MAX_POI_IDS: int = 10
     OWNER_DAILY_LIMIT: int = 10
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = DEFAULT_GEMINI_MODEL
 
     # Static Paths
     STATIC_DIR: str = "app/static"
     MAP_PACK_DATA_DIR: str = "app/static/maps"
+    GOONG_API_KEY: str = ""
+    PHOTON_BASE_URL: str = "https://photon.komoot.io"
 
     @property
     def is_production(self) -> bool:

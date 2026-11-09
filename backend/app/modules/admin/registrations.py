@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.database import get_db, mongo_transaction
 from app.modules.admin.audit import write_audit_event
 from app.modules.admin.poi_management import bump_dataset, insert_poi, vietnamese_search_regex
-from app.modules.admin.schemas import POICreateRequest, RegistrationPOIDraft
+from app.modules.admin.schemas import POICreateRequest, POILocation, RegistrationPOIDraft
 from app.modules.owner.service import purge_expired_registration_pii
 
 STATUSES = ("pending", "approved", "rejected")
@@ -59,6 +59,7 @@ def _serialize(doc: dict, email: Optional[str] = None) -> dict:
         "phone": doc.get("phone"),
         "poi_name": doc.get("poi_name"),
         "poi_address": doc.get("poi_address"),
+        "poi_location": doc.get("poi_location"),
         "storefront_image_url": doc.get("storefront_image_url"),
         "status": doc.get("status"),
         "linked_poi_id": str(doc["linked_poi_id"]) if doc.get("linked_poi_id") else None,
@@ -182,14 +183,59 @@ async def search_registration_pois(reg_id: str, name: str, address: str) -> dict
     }
 
 
+async def _publish_pinned_registration(reg, uid, user, ip, *, session) -> ObjectId:
+    db = get_db()
+    permissions = set(user.get("permissions", []))
+    if "poi:toggle" not in permissions:
+        raise HTTPException(403, "Thiếu quyền công khai quán (poi:toggle)")
+
+    name = (reg.get("poi_name") or "").strip()
+    address = (reg.get("poi_address") or "").strip()
+    if not name or len(name) > 180 or not address or len(address) > 400:
+        raise HTTPException(422, "Tên hoặc địa chỉ trong hồ sơ không hợp lệ")
+    matches = await db["poi"].find(
+        _registration_poi_identity(reg), {"_id": 1}, session=session,
+    ).to_list(length=2)
+    if len(matches) > 1:
+        raise HTTPException(409, "Có nhiều quán trùng tên và địa chỉ. Hãy xử lý bản ghi trùng trước khi duyệt.")
+
+    permission = "poi:update" if matches else "poi:create"
+    if permission not in permissions:
+        raise HTTPException(403, f"Bạn không có quyền thực hiện thao tác này ({permission})")
+    if matches:
+        pid = matches[0]["_id"]
+        linked = await db["poi"].update_one(
+            {"_id": pid, "$or": [{"owner_id": None}, {"owner_id": {"$in": [uid, str(uid)]}}]},
+            {"$set": {"owner_id": uid, "location": reg["poi_location"],
+                      "is_active": True, "updated_at": _now()}, "$inc": {"revision": 1}},
+            session=session,
+        )
+        if not linked.matched_count:
+            raise HTTPException(409, "Quán đã được gắn cho một chủ sở hữu khác")
+        await bump_dataset(session=session)
+        return pid
+
+    image = (reg.get("storefront_image_url") or "").strip()
+    payload = POICreateRequest(
+        name=name,
+        address=address,
+        ward=reg.get("poi_ward") or "Chưa xác định",
+        location=reg["poi_location"],
+        original_description=f"{name} — {address}",
+        images=[image] if 0 < len(image) <= 2048 else [],
+    )
+    return await insert_poi(payload, user, ip, session=session, owner_id=uid, publish_on_approval=True)
+
+
 async def review_registration(
     reg_id: str, action: str, note: Optional[str], user: dict, ip: Optional[str],
     poi_id: Optional[str] = None, draft: RegistrationPOIDraft | None = None,
+    *, poi_location: POILocation | None = None,
 ) -> dict:
     if action not in ("approve", "reject"):
         raise HTTPException(422, "action must be approve or reject")
     note = (note or "").strip()
-    if action == "reject" and (not note or poi_id is not None or draft is not None):
+    if action == "reject" and (not note or any(value is not None for value in (poi_id, draft, poi_location))):
         raise HTTPException(422, "Từ chối hồ sơ cần lý do và không kèm quán")
     if len(note) > MAX_NOTE_LENGTH:
         raise HTTPException(422, f"admin_note tối đa {MAX_NOTE_LENGTH} ký tự")
@@ -218,7 +264,15 @@ async def review_registration(
         if not repairing:
             updates.update(status=new_status, admin_note=note or None,
                            reviewed_by=user.get("id"), reviewed_at=stamp)
-        if action == "approve":
+        if poi_location is not None:
+            if reg.get("poi_location"):
+                raise HTTPException(422, "Hồ sơ đã có ghim vị trí của chủ quán")
+            reg["poi_location"] = updates["poi_location"] = poi_location.model_dump()
+        if action == "approve" and reg.get("poi_location"):
+            if poi_id is not None or draft is not None:
+                raise HTTPException(422, "Hồ sơ đã có ghim vị trí. Hãy duyệt từ thông tin trong hồ sơ.")
+            linked_poi_id = await _publish_pinned_registration(reg, uid, user, ip, session=tx)
+        elif action == "approve":
             if (poi_id is None) == (draft is None):
                 raise HTTPException(422, "Chọn một quán có sẵn hoặc nhập thông tin tạo quán nháp")
             permission = "poi:create" if draft is not None else "poi:update"
@@ -251,6 +305,7 @@ async def review_registration(
                         raise HTTPException(404, "Không tìm thấy quán để gắn")
                     raise HTTPException(409, "Quán đã được gắn cho một chủ sở hữu khác")
                 await bump_dataset(session=tx)
+        if linked_poi_id is not None:
             updates["linked_poi_id"] = linked_poi_id
             await db["users"].update_one({"_id": uid}, {"$set": {
                 "is_poi_owner_verified": True, "updated_at": stamp}}, session=tx)
@@ -262,7 +317,8 @@ async def review_registration(
         if not claimed.modified_count:
             raise HTTPException(409, "Hồ sơ đã được xử lý")
 
-        message = ("Quán đã được gắn với tài khoản của bạn" if repairing
+        message = ("Quán đã được công khai và gắn với tài khoản của bạn" if linked_poi_id and reg.get("poi_location")
+                   else "Quán đã được gắn với tài khoản của bạn" if repairing
                    else "Hồ sơ đã được duyệt và quán đã được gắn" if action == "approve"
                    else f"Hồ sơ bị từ chối: {note}")
         await db["owner_notifications"].insert_one({

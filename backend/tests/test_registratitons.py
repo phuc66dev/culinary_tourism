@@ -137,6 +137,80 @@ async def test_approve_sets_verified_flag_and_notifies(client, fernet):
     assert [item["id"] for item in response.json()["items"]] == [str(pid)]
 
 
+async def test_approve_pinned_registration_publishes_poi(client, fernet):
+    registration = {
+        "full_name": "Nguyễn Văn An",
+        "phone": "0901234567",
+        "email": "pinned@example.com",
+        "password": "StrongPassword!123",
+        "poi_name": "Quán Bánh Mì",
+        "poi_address": "1 Vĩnh Khánh, Quận 4",
+        "poi_location": DRAFT["location"],
+        "cccd_number": CCCD,
+    }
+    response = await client.post("/api/v1/admin/auth/register-owner", json=registration)
+    assert response.status_code == 201, response.text
+    rid = response.json()["id"]
+    db = database.get_db()
+    assert await db["poi"].count_documents({}) == 0
+
+    await admin_login(client)
+    response = await client.post(f"{BASE}/{rid}/review", json={"action": "approve"})
+    assert response.status_code == 200, response.text
+    pid = response.json()["poi_id"]
+    poi = await db["poi"].find_one({"_id": ObjectId(pid)})
+    assert list(poi["location"]["coordinates"]) == registration["poi_location"]["coordinates"]
+    assert poi["address"] == registration["poi_address"]
+    assert poi["is_active"] is True
+    assert (await client.post(f"{BASE}/{rid}/review", json={"action": "approve"})).status_code == 409
+    client.cookies.clear()
+    public = await client.get("/api/v1/mobile/pois", params={"search": registration["poi_name"]})
+    assert public.status_code == 200, public.text
+    assert [item["id"] for item in public.json()["data"]["items"]] == [pid]
+    assert await db["poi"].count_documents({}) == 1
+
+
+async def test_approve_legacy_registration_with_admin_pin(client, fernet):
+    rid, _ = await make_registration(fernet)
+    await admin_login(client)
+    response = await client.post(f"{BASE}/{rid}/review", json={
+        "action": "approve", "poi_location": DRAFT["location"],
+    })
+    assert response.status_code == 200, response.text
+    db = database.get_db()
+    reg = await db["poi_owner_registrations"].find_one({"_id": ObjectId(rid)})
+    assert reg["status"] == "approved"
+    assert list(reg["poi_location"]["coordinates"]) == DRAFT["location"]["coordinates"]
+    poi = await db["poi"].find_one({"_id": ObjectId(response.json()["poi_id"])})
+    assert poi["is_active"] is True
+
+
+@pytest.mark.parametrize("already_owned", [False, True])
+async def test_approve_pinned_registration_handles_existing_poi(client, fernet, already_owned):
+    rid, uid = await make_registration(fernet)
+    db = database.get_db()
+    await db["poi_owner_registrations"].update_one(
+        {"_id": ObjectId(rid)}, {"$set": {"poi_location": DRAFT["location"]}},
+    )
+    other_owner = ObjectId() if already_owned else None
+    pid = await make_poi(owner_id=other_owner)
+    await admin_login(client)
+
+    response = await client.post(f"{BASE}/{rid}/review", json={"action": "approve"})
+    poi = await db["poi"].find_one({"_id": pid})
+    assert await db["poi"].count_documents({}) == 1
+    if already_owned:
+        assert response.status_code == 409, response.text
+        assert poi["owner_id"] == other_owner and poi["is_active"] is False
+        registration = await db["poi_owner_registrations"].find_one({"_id": ObjectId(rid)})
+        assert registration["status"] == "pending"
+    else:
+        assert response.status_code == 200, response.text
+        assert response.json()["poi_id"] == str(pid)
+        assert poi["owner_id"] == uid and poi["is_active"] is True
+        assert poi["location"] == DRAFT["location"]
+
+
 async def test_reject_requires_reason_and_notifies_owner(client, fernet):
     rid, uid = await make_registration(fernet)
     await admin_login(client)

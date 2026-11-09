@@ -236,6 +236,30 @@ Sau khi MongoDB sẵn sàng, chạy seed lại theo mục 4.
 - **Audit Logs:** Ghi nhận các thao tác quản trị nhạy cảm.
 - **Static Security:** Kiểm tra đường dẫn khi truy cập tài nguyên tĩnh.
 
+## 9. Sự kiện thống kê cho Dashboard chủ quán
+
+App du khách gửi tối đa 50 sự kiện mỗi lần đến `POST /api/v1/analytics/collect`
+với JSON dạng `{"consent_status":"granted","events":[...]}`. Chỉ gửi khi khách
+đã đồng ý chia sẻ thống kê. Mỗi sự kiện có `event_id` (UUID giữ nguyên khi gửi lại),
+`poi_id`, `kind` và `occurred_at` (ISO 8601 có múi giờ).
+
+| `kind` | Khi nào gửi |
+| --- | --- |
+| `poi_viewed` | Khách mở trang chi tiết quán. |
+| `search_poi_selected` | Khách chọn quán từ danh sách kết quả tìm kiếm. |
+| `audio_started` | Bản thuyết minh bắt đầu phát. |
+| `audio_completed` | Bản thuyết minh phát đến hết. |
+| `audio_ended` | Khách kết thúc lượt nghe trước khi bản thuyết minh phát đến hết. |
+
+Sự kiện audio cần `playback_id` (UUID mới cho mỗi lượt nghe, giữ nguyên từ lúc
+bắt đầu đến lúc kết thúc) và `language` (`vi`, `en`, `zh`, `ja`, `ko`). Gửi một
+trong hai sự kiện kết thúc với `duration_seconds` là số giây đã thực sự phát.
+Khi khách đổi bản ngôn ngữ, kết thúc lượt hiện tại và tạo lượt mới. Thời lượng
+được tính vào ngày kết thúc lượt nghe theo giờ Việt Nam.
+
+Backend tổng hợp tối đa 90 ngày lịch. Dashboard lấy số liệu của từng quán đã được
+liên kết với tài khoản qua `GET /api/v1/owner/analytics?poi_id=…&days=30`.
+
 ---
 
 **Quan4 Culinary Tourism — Backend Development Guide**  

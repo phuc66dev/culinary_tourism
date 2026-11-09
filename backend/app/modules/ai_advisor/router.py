@@ -23,7 +23,7 @@ async def enhance_description(
     payload: EnhanceDescriptionRequest,
     user: dict = Depends(require_permission("owner:access")),
 ):
-    """Sinh đoạn văn thuyết minh ẩm thực 200-300 từ bằng Gemini 2.5 Flash."""
+    """Sinh đoạn văn thuyết minh ẩm thực 200-300 từ bằng Gemini."""
     enhanced_text = await ai_advisor_service.enhance_poi_description(payload, user)
     usage = await ai_advisor_service.get_daily_usage(user["id"])
     return {"enhanced_description": enhanced_text, "usage": usage}

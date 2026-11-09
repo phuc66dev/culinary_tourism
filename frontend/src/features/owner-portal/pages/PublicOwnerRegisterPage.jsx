@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
-import { FiArrowLeft, FiCheck, FiImage, FiUpload, FiX } from "react-icons/fi";
+import { FiArrowLeft, FiCheck, FiImage, FiSearch, FiUpload, FiX } from "react-icons/fi";
 import { Link } from "react-router-dom";
 import axiosClient from "../../../api/axiosClient.js";
 import { apiErrorMessage } from "../../admin-dashboard/utils/assetUrl.js";
+import ShopLocationMap from "../../maps/ShopLocationMap.jsx";
 import "../../admin-dashboard/admin.css";
 import "../owner.css";
 
@@ -59,15 +60,6 @@ const accountFields = [
     max: 72,
     autoComplete: "new-password",
   },
-];
-const shopFields = [
-  {
-    key: "poi_name",
-    label: "Tên quán",
-    placeholder: "Ví dụ: Bánh mì Chảo Quận 4",
-    max: 180,
-    autoComplete: "organization",
-  },
   {
     key: "cccd_number",
     label: "Số CCCD",
@@ -77,18 +69,48 @@ const shopFields = [
     inputMode: "numeric",
     hint: "9 hoặc 12 chữ số.",
   },
-  {
-    key: "poi_address",
-    label: "Địa chỉ quán",
-    placeholder: "Ví dụ: 123 Vĩnh Khánh, Quận 4",
-    max: 400,
-    autoComplete: "street-address",
-    wide: true,
-  },
 ];
+const shopNameField = {
+  key: "poi_name",
+  label: "Tên quán",
+  placeholder: "Ví dụ: Bánh mì Chảo Quận 4",
+  max: 180,
+  autoComplete: "organization",
+};
+const steps = [
+  "Tài khoản và liên hệ",
+  "Thông tin quán",
+  "Vị trí quán",
+  "Kiểm tra hồ sơ",
+];
+const finalStep = steps.length - 1;
 const photoTypes = ["image/jpeg", "image/png", "image/webp"];
 
+function ReviewSection({ title, fields, onEdit, disabled, children }) {
+  return (
+    <section className="space-y-3 rounded-lg border border-slate-200 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <button type="button" onClick={onEdit} disabled={disabled}
+          className="owner-register-back" aria-label={`Sửa ${title.toLowerCase()}`}>
+          Chỉnh sửa
+        </button>
+      </div>
+      <dl className="grid gap-3 text-sm sm:grid-cols-2">
+        {fields.map(([label, value]) => (
+          <div key={label} className="min-w-0">
+            <dt className="text-xs text-slate-500">{label}</dt>
+            <dd className="mt-1 break-words font-medium">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {children}
+    </section>
+  );
+}
+
 export default function PublicOwnerRegisterPage() {
+  const [step, setStep] = useState(0);
   const [form, setForm] = useState(initial);
   const [error, setError] = useState("");
   const [fieldError, setFieldError] = useState({});
@@ -97,7 +119,19 @@ export default function PublicOwnerRegisterPage() {
   const [photo, setPhoto] = useState(null);
   const [preview, setPreview] = useState("");
   const [photoError, setPhotoError] = useState("");
+  const [location, setLocation] = useState(null);
+  const [lookup, setLookup] = useState(null);
+  const [locationMessage, setLocationMessage] = useState("");
+  const [mapCenter, setMapCenter] = useState(null);
+  const addressRequest = useRef(null);
   const fileInput = useRef(null);
+  const stepHeading = useRef(null);
+  const focusStep = useRef(false);
+
+  useEffect(() => () => addressRequest.current?.abort(), []);
+  useEffect(() => {
+    if (focusStep.current) stepHeading.current?.focus();
+  }, [step]);
 
   useEffect(() => {
     if (!photo) {
@@ -130,21 +164,98 @@ export default function PublicOwnerRegisterPage() {
     setFieldError((current) => ({ ...current, [key]: "" }));
   }
 
+  async function findAddress(mode, path, params, onResult, onFailure) {
+    addressRequest.current?.abort();
+    const request = new AbortController();
+    addressRequest.current = request;
+    setLocationMessage("");
+    setLookup(mode);
+    try {
+      const { data } = await axiosClient.get(path, { params, signal: request.signal });
+      if (!request.signal.aborted) onResult(data);
+    } catch (err) {
+      if (!request.signal.aborted) onFailure(err);
+    } finally {
+      if (!request.signal.aborted) setLookup(null);
+    }
+  }
+
+  function pinLocation(coordinates) {
+    setLocation({ coordinates, ward: null });
+    setMapCenter(null);
+    update("poi_address", "");
+    setFieldError((current) => ({ ...current, poi_location: "" }));
+    const [lng, lat] = coordinates;
+    return findAddress("pin", "/maps/reverse-geocode", { lat, lng }, (data) => {
+      update("poi_address", data.address);
+      setLocation({ coordinates, ward: data.ward });
+      setLocationMessage("Đã ghim vị trí. Hãy kiểm tra lại địa chỉ.");
+    }, () => setLocationMessage("Đã ghim vị trí. Hãy nhập địa chỉ của điểm đã ghim."));
+  }
+
+  function searchAddress() {
+    const q = form.poi_address.trim();
+    if (q.length < 3) {
+      setFieldError((current) => ({ ...current, poi_address: "Nhập ít nhất 3 ký tự để tìm địa chỉ." }));
+      return;
+    }
+    return findAddress("search", "/maps/search-address", { q }, (data) => {
+      setLocation({ coordinates: data.coordinates, ward: data.ward });
+      setMapCenter(data.coordinates);
+      setFieldError((current) => ({ ...current, poi_location: "", poi_address: "" }));
+      setLocationMessage(`Đã ghim kết quả: ${data.address}. Kiểm tra vị trí trên bản đồ.`);
+    }, (err) => setLocationMessage(
+      err.response?.status === 404
+        ? "Không tìm thấy địa chỉ. Thử thêm tên đường, phường hoặc ghim trực tiếp."
+        : "Chưa tìm được địa chỉ. Hãy thử lại hoặc ghim trực tiếp.",
+    ));
+  }
+
+  function goToStep(next) {
+    addressRequest.current?.abort();
+    setLookup(null);
+    setFieldError({});
+    setError("");
+    focusStep.current = true;
+    setStep(next);
+  }
+
+  function validateStep() {
+    const issues = {};
+    if (step === 0) {
+      if (!form.full_name.trim()) issues.full_name = "Hãy nhập họ và tên.";
+      if (form.phone.trim().length < 8) issues.phone = "Số điện thoại cần ít nhất 8 ký tự.";
+      if (!/^(?:\d{9}|\d{12})$/.test(form.cccd_number.trim()))
+        issues.cccd_number = "CCCD cần gồm 9 hoặc 12 chữ số.";
+      const password = form.password.trim();
+      if (password.length < 12 || new TextEncoder().encode(password).length > 72)
+        issues.password = "Mật khẩu cần ít nhất 12 ký tự và tối đa 72 byte.";
+      if (form.password !== form.password_confirmation)
+        issues.password_confirmation = "Mật khẩu nhập lại chưa khớp.";
+    }
+    if (step === 1 && !form.poi_name.trim()) issues.poi_name = "Hãy nhập tên quán.";
+    if (step === 2) {
+      if (!location) issues.poi_location = "Hãy tìm địa chỉ hoặc ghim vị trí trên bản đồ.";
+      if (!form.poi_address.trim()) issues.poi_address = "Hãy nhập địa chỉ quán.";
+    }
+    setFieldError(issues);
+    return !Object.keys(issues).length && (step !== 1 || !photoError);
+  }
+
   async function submit(event) {
     event.preventDefault();
-    if (submitting || photoError) return;
-    const next = {};
-    if (!/^(?:\d{9}|\d{12})$/.test(form.cccd_number.trim()))
-      next.cccd_number = "CCCD cần gồm 9 hoặc 12 chữ số.";
-    if (form.password !== form.password_confirmation)
-      next.password_confirmation = "Mật khẩu nhập lại chưa khớp.";
-    setFieldError(next);
-    if (Object.keys(next).length) return;
+    if (submitting || lookup || !validateStep()) return;
+    if (step < finalStep) {
+      goToStep(step + 1);
+      return;
+    }
 
     setError("");
     setSubmitting(true);
     const { password_confirmation, ...payload } = form;
     payload.cccd_number = payload.cccd_number.trim();
+    payload.poi_location = { type: "Point", coordinates: location.coordinates };
+    payload.poi_ward = location.ward;
     try {
       let response;
       if (photo) {
@@ -263,110 +374,195 @@ export default function PublicOwnerRegisterPage() {
             sơ.
           </p>
         </header>
-        <form onSubmit={submit}>
-          {error && (
-            <p
-              role="alert"
-              className="mx-5 mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800"
-            >
-              {error}
-            </p>
-          )}
-          <div className="owner-register-grid">
-            <div className="space-y-5">
-              <fieldset disabled={submitting}>
-                <legend className="owner-register-legend">
-                  Tài khoản và liên hệ
-                </legend>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {accountFields.map(renderField)}
-                </div>
-              </fieldset>
-              <fieldset disabled={submitting}>
-                <legend className="owner-register-legend">
-                  Thông tin quán
-                </legend>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {shopFields.map(renderField)}
-                </div>
-              </fieldset>
-            </div>
-            <aside className="owner-register-photo">
-              <h2 className="font-semibold">Ảnh mặt tiền quán</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Ảnh rõ mặt tiền hoặc bảng hiệu giúp quản trị viên xác minh địa
-                điểm. Ảnh không bắt buộc.
+        <nav className="owner-register-progress" aria-label="Tiến trình đăng ký">
+          <ol>
+            {steps.map((label, index) => (
+              <li key={label} aria-current={step === index ? "step" : undefined}
+                data-completed={index < step}>
+                <span className="owner-register-step-number" aria-hidden={index < step || undefined}>
+                  {index < step ? <FiCheck /> : index + 1}
+                </span>
+                <span>
+                  {index < step && <span className="sr-only">Bước {index + 1}, đã hoàn thành. </span>}
+                  {label}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </nav>
+        <form onSubmit={submit} aria-labelledby="registration-step-heading">
+          <div className="owner-register-body">
+            <h2 id="registration-step-heading" ref={stepHeading} tabIndex={-1}
+              className="text-lg font-bold">
+              {steps[step]}
+            </h2>
+            {error && (
+              <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+                {error}
               </p>
-              <input
-                ref={fileInput}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                hidden
-                disabled={submitting}
-                onChange={choosePhoto}
-              />
-              <div className="owner-register-preview">
-                {preview ? (
-                  <img
-                    src={preview}
-                    alt="Xem trước ảnh mặt tiền quán"
-                    onError={() => {
-                      setPhoto(null);
-                      setPhotoError(
-                        "Không đọc được ảnh đã chọn. Hãy chọn ảnh khác.",
-                      );
-                    }}
-                  />
-                ) : (
-                  <FiImage aria-hidden="true" size={32} />
-                )}
+            )}
+            {step === 0 && (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {accountFields.map(renderField)}
               </div>
-              {photo && (
-                <p className="mt-2 break-all text-xs text-slate-600">
-                  {photo.name}
-                </p>
-              )}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="owner-secondary inline-flex items-center gap-2 bg-white"
-                  disabled={submitting}
-                  onClick={() => fileInput.current?.click()}
-                >
-                  <FiUpload aria-hidden="true" />{" "}
-                  {photo ? "Đổi ảnh" : "Chọn ảnh từ máy tính"}
-                </button>
-                {(photo || photoError) && (
-                  <button
-                    type="button"
-                    className="owner-secondary inline-flex items-center gap-2"
+            )}
+            {step === 1 && (
+              <div className="owner-register-grid mt-4">
+                <div>{renderField(shopNameField)}</div>
+                <aside className="owner-register-photo">
+                  <h2 className="font-semibold">Ảnh mặt tiền quán</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Ảnh rõ mặt tiền hoặc bảng hiệu giúp quản trị viên xác minh địa
+                    điểm. Ảnh không bắt buộc.
+                  </p>
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    hidden
                     disabled={submitting}
-                    onClick={() => {
-                      setPhoto(null);
-                      setPhotoError("");
-                    }}
-                  >
-                    <FiX aria-hidden="true" /> Bỏ ảnh
-                  </button>
-                )}
+                    onChange={choosePhoto}
+                  />
+                  <div className="owner-register-preview">
+                    {preview ? (
+                      <img
+                        src={preview}
+                        alt="Xem trước ảnh mặt tiền quán"
+                        onError={() => {
+                          setPhoto(null);
+                          setPhotoError(
+                            "Không đọc được ảnh đã chọn. Hãy chọn ảnh khác.",
+                          );
+                        }}
+                      />
+                    ) : (
+                      <FiImage aria-hidden="true" size={32} />
+                    )}
+                  </div>
+                  {photo && (
+                    <p className="mt-2 break-all text-xs text-slate-600">
+                      {photo.name}
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="owner-secondary inline-flex items-center gap-2 bg-white"
+                      disabled={submitting}
+                      onClick={() => fileInput.current?.click()}
+                    >
+                      <FiUpload aria-hidden="true" />{" "}
+                      {photo ? "Đổi ảnh" : "Chọn ảnh từ máy tính"}
+                    </button>
+                    {(photo || photoError) && (
+                      <button
+                        type="button"
+                        className="owner-secondary inline-flex items-center gap-2"
+                        disabled={submitting}
+                        onClick={() => {
+                          setPhoto(null);
+                          setPhotoError("");
+                        }}
+                      >
+                        <FiX aria-hidden="true" /> Bỏ ảnh
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    JPEG, PNG hoặc WebP. Tối đa 5 MB.
+                  </p>
+                  {photoError && (
+                    <p role="alert" className="mt-2 text-sm text-red-700">
+                      {photoError}
+                    </p>
+                  )}
+                </aside>
               </div>
-              <p className="mt-2 text-xs text-slate-500">
-                JPEG, PNG hoặc WebP. Tối đa 5 MB.
-              </p>
-              {photoError && (
-                <p role="alert" className="mt-2 text-sm text-red-700">
-                  {photoError}
+            )}
+            {step === 2 && (
+              <div className="mt-4 space-y-3">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                  <label className="owner-register-field">
+                    Địa chỉ quán
+                    <input
+                      required
+                      maxLength={400}
+                      value={form.poi_address}
+                      disabled={Boolean(lookup)}
+                      autoComplete="street-address"
+                      placeholder="Ví dụ: Vĩnh Khánh, Khánh Hội"
+                      onChange={(event) => update("poi_address", event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                          event.preventDefault();
+                          if (!lookup) searchAddress();
+                        }
+                      }}
+                      aria-invalid={Boolean(fieldError.poi_address)}
+                      aria-describedby="poi-address-hint"
+                    />
+                  </label>
+                  <button type="button" disabled={Boolean(lookup)}
+                    className="owner-secondary inline-flex min-h-9 items-center justify-center gap-2 disabled:opacity-60"
+                    onClick={searchAddress}>
+                    <FiSearch aria-hidden="true" />
+                    {lookup === "search" ? "Đang tìm…" : "Tìm trên bản đồ"}
+                  </button>
+                </div>
+                {fieldError.poi_address && (
+                  <p role="alert" className="text-sm text-red-700">{fieldError.poi_address}</p>
+                )}
+                <p id="poi-address-hint" className="text-sm text-slate-600">
+                  Tìm theo địa chỉ nếu muốn, hoặc bấm vào bản đồ để ghim vị trí quán.
                 </p>
-              )}
-            </aside>
+                <ShopLocationMap
+                  coordinates={location?.coordinates}
+                  centerOn={mapCenter}
+                  onPick={pinLocation}
+                />
+                {fieldError.poi_location && (
+                  <p role="alert" className="text-sm text-red-700">{fieldError.poi_location}</p>
+                )}
+                <p role="status" className="text-sm text-slate-600">
+                  {lookup === "pin" ? "Đang lấy địa chỉ từ vị trí đã ghim…" : locationMessage}
+                </p>
+              </div>
+            )}
+            {step === finalStep && (
+              <div className="mt-3 space-y-3">
+                <p className="text-sm text-slate-600">
+                  Kiểm tra thông tin trước khi xác nhận gửi hồ sơ cho quản trị viên.
+                </p>
+                <ReviewSection title={steps[0]} disabled={submitting} onEdit={() => goToStep(0)}
+                  fields={[
+                    ["Họ và tên", form.full_name],
+                    ["Số điện thoại", form.phone],
+                    ["Email", form.email],
+                    ["Số CCCD", "•••• " + form.cccd_number.trim().slice(-4)],
+                  ]} />
+                <ReviewSection title={steps[1]} disabled={submitting} onEdit={() => goToStep(1)}
+                  fields={[["Tên quán", form.poi_name], ["Ảnh mặt tiền", photo?.name || "Chưa tải ảnh"]]}>
+                  {preview && <img src={preview} alt="Ảnh mặt tiền quán đã chọn"
+                    className="max-h-32 max-w-full rounded-lg object-contain" />}
+                </ReviewSection>
+                <ReviewSection title={steps[2]} disabled={submitting} onEdit={() => goToStep(2)}
+                  fields={[["Địa chỉ quán", form.poi_address]]}>
+                  <ShopLocationMap coordinates={location?.coordinates} disabled={submitting} />
+                </ReviewSection>
+              </div>
+            )}
           </div>
           <footer className="owner-register-footer">
-            <button
-              type="submit"
-              disabled={submitting || !!photoError}
-              className="admin-button-primary disabled:opacity-60"
-            >
-              {submitting ? "Đang gửi hồ sơ…" : "Gửi hồ sơ đăng ký"}
+            {step > 0 && (
+              <button type="button" disabled={submitting} className="owner-secondary"
+                onClick={() => goToStep(step - 1)}>
+                Quay lại
+              </button>
+            )}
+            <button type="submit"
+              disabled={submitting || Boolean(lookup) || (step === 1 && Boolean(photoError))}
+              className="admin-button-primary disabled:opacity-60">
+              {step < finalStep ? "Tiếp tục" : submitting ? "Đang gửi hồ sơ…" : "Xác nhận và gửi hồ sơ"}
             </button>
           </footer>
         </form>

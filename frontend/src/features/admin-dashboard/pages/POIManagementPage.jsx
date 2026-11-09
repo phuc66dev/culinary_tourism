@@ -13,19 +13,6 @@ const INPUT =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-teal-600 focus:outline-none";
 const ACTION =
   "rounded-lg px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40";
-const emptyForm = () => ({
-  name: "",
-  category: "street_food",
-  address: "",
-  ward: "Phường 8",
-  original_description: "",
-  longitude: String(DEFAULT_COORDS[0]),
-  latitude: String(DEFAULT_COORDS[1]),
-  trigger_radius: "30",
-  audio_priority: "5",
-  images: "",
-});
-
 function SatellitePicker({ coords, onChange }) {
   const mount = useRef(null);
   const mapRef = useRef(null);
@@ -120,24 +107,18 @@ function SatellitePicker({ coords, onChange }) {
 }
 
 function POIForm({ poi, saving, error, onSave, onClose }) {
-  const [form, setForm] = useState(() =>
-    poi
-      ? {
-          name: poi.name || "",
-          category: poi.category || "street_food",
-          address: poi.address || "",
-          ward: poi.ward || "",
-          original_description: poi.original_description || "",
-          longitude: String(
-            poi.location?.coordinates?.[0] ?? DEFAULT_COORDS[0],
-          ),
-          latitude: String(poi.location?.coordinates?.[1] ?? DEFAULT_COORDS[1]),
-          trigger_radius: String(poi.trigger_radius ?? 30),
-          audio_priority: String(poi.audio_priority ?? 5),
-          images: (poi.images || []).join("\n"),
-        }
-      : emptyForm(),
-  );
+  const [form, setForm] = useState(() => ({
+    name: poi.name || "",
+    category: poi.category || "street_food",
+    address: poi.address || "",
+    ward: poi.ward || "",
+    original_description: poi.original_description || "",
+    longitude: String(poi.location?.coordinates?.[0] ?? DEFAULT_COORDS[0]),
+    latitude: String(poi.location?.coordinates?.[1] ?? DEFAULT_COORDS[1]),
+    trigger_radius: String(poi.trigger_radius ?? 30),
+    audio_priority: String(poi.audio_priority ?? 5),
+    images: (poi.images || []).join("\n"),
+  }));
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const coords = [Number(form.longitude), Number(form.latitude)];
 
@@ -166,7 +147,7 @@ function POIForm({ poi, saving, error, onSave, onClose }) {
         .split("\n")
         .map((v) => v.trim())
         .filter(Boolean),
-      ...(poi ? { expected_revision: poi.revision } : {}),
+      expected_revision: poi.revision,
     });
   }
   return (
@@ -182,7 +163,7 @@ function POIForm({ poi, saving, error, onSave, onClose }) {
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 id="poi-form-title" className="text-lg font-bold">
-            {poi ? `Sửa ${poi.name}` : "Thêm quán ăn mới"}
+            Sửa {poi.name}
           </h3>
           <button type="button" onClick={onClose} className="text-sm underline">
             Đóng
@@ -344,7 +325,7 @@ function POIForm({ poi, saving, error, onSave, onClose }) {
             disabled={saving}
             className={`${ACTION} bg-teal-700 text-white`}
           >
-            {saving ? "Đang lưu…" : poi ? "Lưu thay đổi" : "Thêm POI"}
+            {saving ? "Đang lưu…" : "Lưu thay đổi"}
           </button>
         </div>
       </form>
@@ -457,7 +438,7 @@ export default function POIManagementPage() {
   const [message, setMessage] = useState("");
   const [englishPOI, setEnglishPOI] = useState(null);
   const [previewPoiId, setPreviewPoiId] = useState(null);
-  const [editing, setEditing] = useState(undefined); // undefined = no form; null = create form
+  const [editing, setEditing] = useState(null);
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -511,11 +492,9 @@ export default function POIManagementPage() {
     setSaving(true);
     setFormError("");
     try {
-      if (editing)
-        await axiosClient.patch(`/admin/pois/${editing.id}`, payload);
-      else await axiosClient.post("/admin/pois", payload);
-      setEditing(undefined);
-      setMessage(editing ? "Đã cập nhật POI" : "Đã thêm POI (đang ẩn)");
+      await axiosClient.patch(`/admin/pois/${editing.id}`, payload);
+      setEditing(null);
+      setMessage("Đã cập nhật POI");
       reload();
     } catch (e) {
       setFormError(apiErrorMessage(e, "Không lưu được POI"));
@@ -592,27 +571,14 @@ export default function POIManagementPage() {
             {data.total} quán phù hợp bộ lọc
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={reload}
-            disabled={loading}
-            className={`${ACTION} border border-slate-300 bg-white text-slate-700`}
-          >
-            Làm mới
-          </button>
-          {hasPermission(user, "poi:create") && (
-            <button
-              onClick={() => {
-                setEditing(null);
-                setFormError("");
-              }}
-              className={`${ACTION} bg-teal-700 text-white`}
-            >
-              + Thêm quán
-            </button>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={reload}
+          disabled={loading}
+          className={`${ACTION} border border-slate-300 bg-white text-slate-700`}
+        >
+          Làm mới
+        </button>
       </header>
       <div className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-3">
         <label className="text-sm">
@@ -857,14 +823,14 @@ export default function POIManagementPage() {
           }}
         />
       )}
-      {editing !== undefined && (
+      {editing && (
         <POIForm
-          key={editing?.id || "new"}
+          key={editing.id}
           poi={editing}
           saving={saving}
           error={formError}
           onSave={save}
-          onClose={() => setEditing(undefined)}
+          onClose={() => setEditing(null)}
         />
       )}
     </div>

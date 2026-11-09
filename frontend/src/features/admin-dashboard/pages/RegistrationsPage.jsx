@@ -3,7 +3,7 @@ import axiosClient from '../../../api/axiosClient.js';
 import { useAuthStore } from '../../../store/authStore.js';
 import { assetUrl, apiErrorMessage } from '../utils/assetUrl.js';
 import { hasPermission } from '../hooks/useAdminSession.js';
-import RegistrationPOIAssignment from '../components/RegistrationPOIAssignment.jsx';
+import ShopLocationMap from '../../maps/ShopLocationMap.jsx';
 import { formatVietnamDateTime } from '../utils/vietnamTime.js';
 
 /**
@@ -11,7 +11,7 @@ import { formatVietnamDateTime } from '../utils/vietnamTime.js';
  * Phụ trách: Vũ (Task 3.5)
  *
  * - Xem thông tin quán + ảnh mặt tiền; CCCD chỉ giải mã khi bấm "Xem CCCD" (có xác nhận, ghi audit, tự ẩn sau 30s).
- * - Phê duyệt kèm quán có sẵn hoặc quán nháp. Từ chối yêu cầu lý do gửi về chủ quán.
+ * - Duyệt và công khai theo vị trí hồ sơ. Từ chối yêu cầu lý do gửi về chủ quán.
  */
 const TABS = [
   ['pending', 'Chờ duyệt'],
@@ -51,9 +51,8 @@ function StorefrontImage({ src, alt }) {
 export default function RegistrationsPage() {
   const user = useAuthStore((s) => s.user);
   const canReview = hasPermission(user, 'user:update');
-  const canSearchPOI = hasPermission(user, 'poi:read');
-  const canLinkPOI = hasPermission(user, 'poi:update');
-  const canCreatePOI = hasPermission(user, 'poi:create');
+  const canPublish = hasPermission(user, 'poi:toggle') &&
+    (hasPermission(user, 'poi:update') || hasPermission(user, 'poi:create'));
 
   const [tab, setTab] = useState('pending');
   const [page, setPage] = useState(0);
@@ -64,6 +63,7 @@ export default function RegistrationsPage() {
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
   const [selectedId, setSelectedId] = useState(null);
+  const [reviewPin, setReviewPin] = useState(null);
 
   const [cccd, setCccd] = useState(null);
   const [cccdLoading, setCccdLoading] = useState(false);
@@ -93,10 +93,13 @@ export default function RegistrationsPage() {
   useEffect(() => { load(); }, [load]);
 
   const selected = useMemo(() => data.items.find((i) => i.id === selectedId) || null, [data.items, selectedId]);
+  const legacyCoordinates = reviewPin?.registrationId === selectedId ? reviewPin.coordinates : null;
+  const showApproval = canReview && !rejecting && selected &&
+    !selected.linked_poi_id && ['pending', 'approved'].includes(selected.status);
 
   const resetDetailState = useCallback(() => {
     clearTimeout(hideTimer.current);
-    setCccd(null); setRejecting(false); setNote(''); setActionError('');
+    setCccd(null); setRejecting(false); setNote(''); setActionError(''); setReviewPin(null);
   }, []);
   useEffect(() => { resetDetailState(); }, [selectedId, resetDetailState]);
   useEffect(() => () => clearTimeout(hideTimer.current), []);
@@ -117,14 +120,18 @@ export default function RegistrationsPage() {
     }
   }
 
-  async function review(action, assignment = {}) {
+  async function review(action) {
     if (submitting) return;
     if (action === 'reject' && !note.trim()) { setActionError('Vui lòng nhập lý do từ chối để gửi về chủ quán.'); return; }
     setSubmitting(true);
     setActionError('');
     try {
-      await axiosClient.post(`/admin/registrations/${selected.id}/review`, { action, admin_note: note.trim() || null, ...assignment });
-      setToast(action === 'approve' ? `Đã xử lý hồ sơ và gắn quán cho "${selected.poi_name}".` : `Đã từ chối "${selected.poi_name}" và gửi lý do cho chủ quán.`);
+      const decision = { action, admin_note: note.trim() || null };
+      if (action === 'approve' && !selected.poi_location && legacyCoordinates) {
+        decision.poi_location = { type: 'Point', coordinates: legacyCoordinates };
+      }
+      await axiosClient.post(`/admin/registrations/${selected.id}/review`, decision);
+      setToast(action === 'approve' ? `Đã duyệt và công khai "${selected.poi_name}".` : `Đã từ chối "${selected.poi_name}" và gửi lý do cho chủ quán.`);
       setSelectedId(null);
       await load();
     } catch (e) {
@@ -242,8 +249,7 @@ export default function RegistrationsPage() {
 
               {actionError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>}
 
-              {selected.status === 'pending' && canReview && (
-                rejecting ? (
+              {selected.status === 'pending' && canReview && rejecting && (
                   <div className="space-y-2">
                     <label htmlFor="reject-note" className="block text-sm font-medium text-slate-700">Lý do từ chối (gửi về chủ quán)</label>
                     <textarea
@@ -261,19 +267,41 @@ export default function RegistrationsPage() {
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <button onClick={() => setRejecting(true)} disabled={submitting} className="rounded-lg bg-red-100 px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-200">Từ chối</button>
-                  </div>
-                )
               )}
 
-              {canReview && !rejecting && !selected.linked_poi_id && ['pending', 'approved'].includes(selected.status) && (
-                canSearchPOI && (canLinkPOI || canCreatePOI) ? (
-                  <RegistrationPOIAssignment key={selected.id} registration={selected}
-                    canLink={canLinkPOI} canCreate={canCreatePOI} busy={submitting}
-                    onApprove={(assignment) => review('approve', assignment)} />
-                ) : <p className="text-sm text-slate-600">Cần quyền đọc quán và quyền cập nhật hoặc tạo quán để hoàn tất hồ sơ.</p>
+              {(selected.poi_location || (showApproval && canPublish)) && !rejecting && (
+                <section className="space-y-2" aria-label="Vị trí quán">
+                  <h4 className="text-sm font-semibold">Vị trí quán</h4>
+                  <p className="text-sm text-slate-600">
+                    {selected.poi_location
+                      ? 'Vị trí đã lưu trong hồ sơ.'
+                      : 'Hồ sơ cũ chưa có ghim. Chọn vị trí trên bản đồ theo địa chỉ quán trước khi duyệt.'}
+                  </p>
+                  <ShopLocationMap key={selected.id}
+                    coordinates={selected.poi_location?.coordinates ?? legacyCoordinates}
+                    onPick={selected.poi_location ? undefined :
+                      (coordinates) => setReviewPin({ registrationId: selected.id, coordinates })}
+                    disabled={submitting} />
+                </section>
+              )}
+
+              {showApproval && !canPublish && (
+                <p className="text-sm text-slate-600">Cần quyền công khai và quyền tạo hoặc cập nhật quán để duyệt.</p>
+              )}
+              {!rejecting && canReview && (
+                <div className="flex flex-wrap gap-2">
+                  {showApproval && canPublish && (
+                    <button type="button" onClick={() => review('approve')}
+                      disabled={submitting || (!selected.poi_location && !legacyCoordinates)}
+                      className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800 disabled:opacity-50">
+                      {submitting ? 'Đang duyệt…' : 'Duyệt và công khai quán'}
+                    </button>
+                  )}
+                  {selected.status === 'pending' && (
+                    <button type="button" onClick={() => setRejecting(true)} disabled={submitting}
+                      className="rounded-lg bg-red-100 px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-200">Từ chối</button>
+                  )}
+                </div>
               )}
 
               {selected.linked_poi_id && <p className="text-sm font-medium text-green-800">Đã gắn quán trong POI Master.</p>}

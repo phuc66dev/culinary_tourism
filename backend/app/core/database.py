@@ -127,6 +127,8 @@ async def ensure_indexes(database: Any) -> None:
     await database["ai_usage_limits"].create_index(
         [("user_id", 1), ("date", 1)], unique=True, name="owner_ai_daily_unique"
     )
+    await database["analytics_poi_events"].create_index([("poi_id", 1), ("day", 1)], name="poi_day")
+    await database["analytics_poi_events"].create_index("expires_at", expireAfterSeconds=0, name="expires_ttl")
 
     # --- audio_tasks / audit_logs ---
     await database["audio_tasks"].create_index(

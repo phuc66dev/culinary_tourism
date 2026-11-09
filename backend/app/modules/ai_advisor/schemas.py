@@ -7,5 +7,6 @@ class EnhanceDescriptionRequest(BaseModel):
 
     poi_id: str = Field(min_length=1, max_length=64)
     poi_name: str = Field(min_length=1, max_length=180)
-    keywords: list[str] = Field(min_length=1, max_length=12)
-    raw_notes: str = Field(default="", max_length=2000)
+    keywords: list[str] = Field(default_factory=list, max_length=12)
+    raw_notes: str = Field(default="", max_length=8000)
+    owner_highlight: str = Field(default="", max_length=500)

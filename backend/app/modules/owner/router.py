@@ -1,17 +1,20 @@
 """Authenticated APIs for the Owner Portal."""
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app.core.rbac import require_permission
 from app.core.security import get_current_user
+from app.modules.analytics.service import RETENTION_DAYS, analytics_service
 from app.modules.owner import service
 from app.modules.owner.notifications import list_notifications, read_notification
 from app.modules.owner.schemas import (
     MenuItemRequest,
     MenuItemUpdateRequest,
     OwnerPOIAvailabilityRequest,
+    POIPhotoSubmissionRequest,
     POISubmissionRequest,
 )
 
@@ -25,6 +28,16 @@ def _client_ip(request: Request) -> str | None:
 @router.get("/dashboard")
 async def owner_dashboard(user: dict = Depends(require_permission("analytics:view_own"))):
     return await service.get_dashboard_summary(user)
+
+
+@router.get("/analytics")
+async def owner_analytics(
+    poi_id: str,
+    days: int = Query(30, ge=7, le=RETENTION_DAYS),
+    user: dict = Depends(require_permission("analytics:view_own")),
+):
+    poi = await service._owned_poi(poi_id, user)
+    return await analytics_service.get_poi_stats(poi["_id"], days)
 
 
 @router.get("/registration-status")
@@ -69,6 +82,21 @@ async def create_poi_submission(
     user: dict = Depends(require_permission("owner:submit_poi")),
 ):
     return await service.create_poi_submission(payload, user, _client_ip(request))
+
+
+@router.post("/submissions/with-photo", status_code=status.HTTP_201_CREATED)
+async def create_poi_submission_with_photo(
+    request: Request,
+    payload: str = Form(max_length=40_000),
+    image: UploadFile = File(...),
+    user: dict = Depends(require_permission("owner:submit_poi")),
+):
+    try:
+        parsed = POIPhotoSubmissionRequest.model_validate_json(payload)
+    except ValidationError:
+        raise HTTPException(422, "Nội dung đề xuất không hợp lệ") from None
+    content = await image.read(service.MENU_IMAGE_MAX_BYTES + 1)
+    return await service.create_poi_submission(parsed, user, _client_ip(request), cover_photo=content)
 
 
 @router.get("/menu-items")

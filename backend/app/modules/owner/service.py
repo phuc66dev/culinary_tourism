@@ -142,6 +142,9 @@ async def create_owner_registration(
                 "status": "pending",
                 "created_at": stamp,
             }
+            if payload.poi_location is not None:
+                registration["poi_location"] = payload.poi_location.model_dump()
+                registration["poi_ward"] = payload.poi_ward
             registration_result = await db["poi_owner_registrations"].insert_one(registration, session=tx)
             registration_id = registration_result.inserted_id
             await write_audit_event(
@@ -317,7 +320,9 @@ async def delete_menu_item(menu_item_id: str, user: dict, client_ip: str | None)
     return {"id": menu_item_id, "deleted": True}
 
 
-async def create_poi_submission(payload: POISubmissionRequest, user: dict, client_ip: str | None) -> dict:
+async def create_poi_submission(
+    payload: POISubmissionRequest, user: dict, client_ip: str | None, *, cover_photo: bytes | None = None,
+) -> dict:
     poi = await _owned_poi(payload.poi_id, user)
     # Keep the owner lane aligned with the exact fields accepted by admin review.
     allowed = set(POIUpdateRequest.model_fields) - {"is_active", "expected_revision"}
@@ -330,7 +335,14 @@ async def create_poi_submission(payload: POISubmissionRequest, user: dict, clien
     except Exception as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Nội dung đề xuất không hợp lệ") from exc
     changes = parsed.model_dump(exclude_unset=True)
-    if not changes or any(value is None for value in changes.values()):
+    if any(value is None for value in changes.values()):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Đề xuất phải có giá trị hợp lệ")
+    if cover_photo is not None:
+        if "images" in changes:
+            raise HTTPException(422, "Chỉ gửi ảnh mặt tiền qua tệp đã chọn")
+        image_url = await asyncio.to_thread(_store_image, cover_photo, "storefront")
+        changes["images"] = [image_url, *(poi.get("images") or [])[1:20]]
+    if not changes:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Đề xuất phải có giá trị hợp lệ")
     if all(poi.get(key) == value for key, value in changes.items()):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Đề xuất không có thay đổi thực tế")

@@ -10,6 +10,7 @@ from app.core.static_guard import GuardedStaticFiles
 
 from app.core.config import settings
 from app.core.database import close_db, connect_db, ping_db
+from app.core.ssl_support import ensure_ssl_certificates
 from app.modules.admin.service import admin_service
 from app.modules.audio.task_manager import audio_task_manager
 from app.modules.owner.service import purge_expired_registration_pii
@@ -99,6 +100,7 @@ async def lifespan(app: FastAPI):
     - Tầng 4: Recovery Audio Tasks & Background Workers (Sprint 3 — Task 3.8)
     """
     assert_security_config()
+    ensure_ssl_certificates()
     await connect_db()
     await admin_service.ensure_roles()
     await admin_service.ensure_super_admin()

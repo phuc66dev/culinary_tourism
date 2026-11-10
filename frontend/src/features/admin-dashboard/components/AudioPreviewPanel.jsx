@@ -5,15 +5,21 @@ import { apiErrorMessage } from '../utils/assetUrl.js';
 const API_BASE = new URL(axiosClient.defaults.baseURL, window.location.origin).toString().replace(/\/$/, '');
 
 /** Listen to current POI audio without knowing MD5 names; download via protected API. */
-export default function AudioPreviewPanel({ poiId, compact = false, onlyLang = null }) {
+export default function AudioPreviewPanel({ poiId, compact = false, onlyLang = null, studio = false }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [playbackError, setPlaybackError] = useState({});
   const players = useRef([]);
+  const [language, setLanguage] = useState('');
+  const activeRequest = useRef(null);
 
-  const refresh = useCallback(async (signal) => {
+  const refresh = useCallback(async () => {
     if (!poiId) return;
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    const signal = controller.signal;
     setLoading(true);
     setError('');
     setPlaybackError({});
@@ -30,26 +36,27 @@ export default function AudioPreviewPanel({ poiId, compact = false, onlyLang = n
   useEffect(() => {
     setResult(null);
     players.current = [];
-    const controller = new AbortController();
-    refresh(controller.signal);
-    return () => controller.abort();
+    refresh();
+    return () => activeRequest.current?.abort();
   }, [refresh]);
 
   const visibleItems = result?.items?.filter((item) => !onlyLang || item.lang === onlyLang) || [];
   const ready = visibleItems.filter((item) => item.ready);
   const missing = visibleItems.filter((item) => !item.ready);
 
+  const selected = ready.find((item) => item.lang === language) || ready[0];
+
   return (
-    <section className={`${compact ? 'mt-3' : 'mt-4'} rounded-lg border border-teal-200 bg-teal-50 p-3`} aria-label="Nghe và tải file âm thanh">
+    <section className={studio ? 'audio-preview-content' : `${compact ? 'mt-3' : 'mt-4'} rounded-lg border border-teal-200 bg-teal-50 p-3`} aria-label="Nghe và tải file âm thanh">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-bold text-teal-950">🎧 Nghe thử / Tải MP3</h3>
+          <h3 className={studio ? "text-lg font-bold text-slate-900" : "text-sm font-bold text-teal-950"}>{studio ? result?.poi_name || 'Audio của quán' : 'Nghe thử / Tải MP3'}</h3>
           <p className="text-xs text-teal-900">
-            {result ? `${result.poi_name} · ${ready.length}/${visibleItems.length} ngôn ngữ có file` : 'Audio hiện tại của quán trong hệ thống'}
+            {result ? `${studio ? '' : result.poi_name + ' · '}${ready.length}/${visibleItems.length} ngôn ngữ có file` : 'Audio hiện tại của quán trong hệ thống'}
           </p>
         </div>
         <button type="button" onClick={() => refresh()} disabled={loading}
-          className="rounded border border-teal-300 bg-white px-3 py-1.5 text-xs font-semibold text-teal-900 hover:bg-teal-100 disabled:opacity-50">
+          className={studio ? "audio-small-button" : "rounded border border-teal-300 bg-white px-3 py-1.5 text-xs font-semibold text-teal-900 hover:bg-teal-100 disabled:opacity-50"}>
           {loading ? 'Đang tải…' : 'Làm mới audio'}
         </button>
       </div>
@@ -58,13 +65,20 @@ export default function AudioPreviewPanel({ poiId, compact = false, onlyLang = n
       {result && ready.length === 0 && (
         <p className="mt-3 rounded bg-white p-3 text-sm text-slate-700">
           Chưa có MP3 hoàn chỉnh cho {onlyLang === 'en' ? 'tiếng Anh' : 'ngôn ngữ này'} trên server.
-          Bấm <strong>Làm mới audio</strong> sau khi tác vụ hoàn tất;
+          Bấm <strong>Làm mới audio</strong> sau khi tác vụ hoàn tất.
         </p>
+      )}
+      {studio && selected && (
+        <label className="audio-preview-language">Ngôn ngữ đang nghe
+          <select value={selected.lang} onChange={(event) => setLanguage(event.target.value)}>
+            {ready.map((item) => <option key={item.lang} value={item.lang}>{item.name}</option>)}
+          </select>
+        </label>
       )}
       {ready.length > 0 && (
         <div className="mt-3 space-y-3">
-          {ready.map((item) => (
-            <div key={item.lang} className="rounded-lg border border-teal-100 bg-white p-3">
+          {(studio ? [selected] : ready).map((item) => (
+            <div key={item.lang} className={studio ? "audio-player-surface" : "rounded-lg border border-teal-100 bg-white p-3"}>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-sm font-semibold text-slate-900">{item.name} <span className="font-normal text-slate-500">({item.lang})</span></div>
@@ -72,7 +86,7 @@ export default function AudioPreviewPanel({ poiId, compact = false, onlyLang = n
                 </div>
                 <a
                   href={`${API_BASE}/admin/pois/${encodeURIComponent(poiId)}/audios/${encodeURIComponent(item.lang)}/download`}
-                  className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-800"
+                  className={studio ? "audio-small-button" : "rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-800"}
                   aria-label={`Tải MP3 ${item.name}`}
                 >Tải MP3</a>
               </div>
@@ -103,6 +117,16 @@ export default function AudioPreviewPanel({ poiId, compact = false, onlyLang = n
               {playbackError[item.lang] && <p role="alert" className="mt-2 text-xs text-red-700">{playbackError[item.lang]}</p>}
             </div>
           ))}
+        </div>
+      )}
+      {studio && result && (
+        <div className="audio-ready-list">
+          <h4 className="font-semibold">Các bản ngôn ngữ</h4>
+          <ul>{visibleItems.map((item) => <li key={item.lang}>
+            <button type="button" disabled={!item.ready} aria-pressed={selected?.lang === item.lang} onClick={() => setLanguage(item.lang)}>
+              <span>{item.name}</span><span className={item.ready ? 'audio-ready-badge' : 'audio-missing-badge'}>{item.ready ? 'Sẵn sàng' : 'Chưa có audio'}</span>
+            </button>
+          </li>)}</ul>
         </div>
       )}
       {result && missing.length > 0 && (

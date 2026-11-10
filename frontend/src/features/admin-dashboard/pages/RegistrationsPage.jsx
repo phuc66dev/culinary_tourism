@@ -1,320 +1,234 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axiosClient from '../../../api/axiosClient.js';
 import { useAuthStore } from '../../../store/authStore.js';
-import { assetUrl, apiErrorMessage } from '../utils/assetUrl.js';
-import { hasPermission } from '../hooks/useAdminSession.js';
 import ShopLocationMap from '../../maps/ShopLocationMap.jsx';
-import { formatVietnamDateTime } from '../utils/vietnamTime.js';
+import ReviewDialog from '../components/ReviewDialog.jsx';
+import ReviewQueue, { ReviewStatus } from '../components/ReviewQueue.jsx';
+import { hasPermission } from '../hooks/useAdminSession.js';
+import { apiErrorMessage, assetUrl } from '../utils/assetUrl.js';
+import { formatVietnamDateTime as fmt } from '../utils/vietnamTime.js';
 
-/**
- * RegistrationsPage — Kiểm duyệt đơn đăng ký Chủ quán (`poi_owner_registrations`) & giải mã CCCD Fernet.
- * Phụ trách: Vũ (Task 3.5)
- *
- * - Xem thông tin quán + ảnh mặt tiền; CCCD chỉ giải mã khi bấm "Xem CCCD" (có xác nhận, ghi audit, tự ẩn sau 30s).
- * - Duyệt và công khai theo vị trí hồ sơ. Từ chối yêu cầu lý do gửi về chủ quán.
- */
-const TABS = [
-  ['pending', 'Chờ duyệt'],
-  ['approved', 'Đã duyệt'],
-  ['rejected', 'Đã từ chối'],
-  ['', 'Tất cả'],
+const columns = [
+  { key: 'poi_name', label: 'Tên quán', render: (item) => item.poi_name || 'Quán chưa có tên' },
+  { key: 'full_name', label: 'Chủ quán', render: (item) => item.full_name || '—' },
+  { key: 'contact', label: 'Liên hệ', sortable: false, render: (item) => (
+    <div className="min-w-32 break-words">
+      <div>{item.phone || '—'}</div>
+      {item.email && <div className="text-xs text-slate-500">{item.email}</div>}
+    </div>
+  ) },
+  { key: 'created_at', label: 'Ngày gửi', render: (item) => <span className="whitespace-nowrap">{fmt(item.created_at)}</span> },
+  { key: 'status', label: 'Trạng thái', render: (item) => <ReviewStatus status={item.status} /> },
 ];
-const STATUS_LABEL = { pending: 'Chờ duyệt', approved: 'Đã duyệt', rejected: 'Đã từ chối' };
-const STATUS_STYLE = { pending: 'bg-amber-100 text-amber-800', approved: 'bg-green-100 text-green-800', rejected: 'bg-red-100 text-red-800' };
-const CCCD_AUTO_HIDE_MS = 30_000;
-const NOTE_MAX = 500;
-
-const fmt = formatVietnamDateTime;
 
 function Field({ label, children }) {
   return (
-    <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-0.5 text-sm text-slate-900">{children || '—'}</dd>
+    <div className="min-w-0">
+      <dt className="text-xs font-medium text-slate-500">{label}</dt>
+      <dd className="mt-0.5 break-words text-sm text-slate-900">{children || '—'}</dd>
     </div>
   );
 }
 
-function StorefrontImage({ src, alt }) {
+function StorefrontImage({ src, name }) {
   const [failed, setFailed] = useState(false);
   const url = assetUrl(src);
   if (!url || failed) {
-    return <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-500">Chưa có ảnh mặt tiền{failed ? ' (không tải được)' : ''}</div>;
+    return <p className="grid h-60 place-items-center rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+      {failed ? 'Không tải được ảnh mặt tiền.' : 'Hồ sơ chưa có ảnh mặt tiền.'}
+    </p>;
   }
   return (
-    <a href={url} target="_blank" rel="noreferrer noopener" title="Mở ảnh gốc">
-      <img src={url} alt={alt} onError={() => setFailed(true)} className="max-h-64 w-full rounded-lg border border-slate-200 object-cover" />
+    <a href={url} target="_blank" rel="noreferrer noopener" aria-label="Mở ảnh mặt tiền gốc">
+      <img src={url} alt={`Mặt tiền ${name}`} onError={() => setFailed(true)}
+        className="h-60 w-full rounded-lg border border-slate-200 object-contain" />
     </a>
   );
 }
 
-export default function RegistrationsPage() {
-  const user = useAuthStore((s) => s.user);
+function RegistrationReview({ item, close, reviewed, reload }) {
+  const user = useAuthStore((state) => state.user);
   const canReview = hasPermission(user, 'user:update');
   const canPublish = hasPermission(user, 'poi:toggle') &&
     (hasPermission(user, 'poi:update') || hasPermission(user, 'poi:create'));
-
-  const [tab, setTab] = useState('pending');
-  const [page, setPage] = useState(0);
-  const limit = 25;
-  const [search, setSearch] = useState('');
-  const [query, setQuery] = useState('');
-  const [data, setData] = useState({ items: [], counts: {}, total: 0 });
-  const [loading, setLoading] = useState(true);
-  const [listError, setListError] = useState('');
-  const [selectedId, setSelectedId] = useState(null);
-  const [reviewPin, setReviewPin] = useState(null);
-
+  const canApprove = canReview && !item.linked_poi_id && ['pending', 'approved'].includes(item.status);
+  const canReject = canReview && item.status === 'pending';
+  const storedPin = item.poi_location?.coordinates;
+  const [legacyPin, setLegacyPin] = useState(null);
   const [cccd, setCccd] = useState(null);
   const [cccdLoading, setCccdLoading] = useState(false);
+  const [cccdError, setCccdError] = useState('');
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [actionError, setActionError] = useState('');
-  const [toast, setToast] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [error, setError] = useState('');
   const hideTimer = useRef(null);
+  const cccdRequest = useRef(null);
 
-  useEffect(() => { const t = setTimeout(() => setQuery(search.trim()), 300); return () => clearTimeout(t); }, [search]);
-  useEffect(() => { setPage(0); setSelectedId(null); }, [query, tab]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setListError('');
-    try {
-      const { data: res } = await axiosClient.get('/admin/registrations', { params: { status: tab || undefined, q: query || undefined, skip: page * limit, limit } });
-      setData(res);
-    } catch (e) {
-      setListError(apiErrorMessage(e, 'Không tải được danh sách'));
-    } finally {
-      setLoading(false);
-    }
-  }, [tab, query, page]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const selected = useMemo(() => data.items.find((i) => i.id === selectedId) || null, [data.items, selectedId]);
-  const legacyCoordinates = reviewPin?.registrationId === selectedId ? reviewPin.coordinates : null;
-  const showApproval = canReview && !rejecting && selected &&
-    !selected.linked_poi_id && ['pending', 'approved'].includes(selected.status);
-
-  const resetDetailState = useCallback(() => {
+  useEffect(() => () => {
     clearTimeout(hideTimer.current);
-    setCccd(null); setRejecting(false); setNote(''); setActionError(''); setReviewPin(null);
+    cccdRequest.current?.abort();
   }, []);
-  useEffect(() => { resetDetailState(); }, [selectedId, resetDetailState]);
-  useEffect(() => () => clearTimeout(hideTimer.current), []);
+
+  function hideCccd() {
+    clearTimeout(hideTimer.current);
+    setCccd(null);
+  }
 
   async function revealCccd() {
-    if (!window.confirm('Hiển thị số CCCD của chủ quán?\nThao tác này được ghi vào nhật ký hệ thống (audit log).')) return;
+    if (!window.confirm('Hiển thị số CCCD của chủ quán? Thao tác được ghi vào nhật ký hệ thống.')) return;
+    const controller = new AbortController();
+    cccdRequest.current = controller;
     setCccdLoading(true);
-    setActionError('');
+    setCccdError('');
     try {
-      const { data: res } = await axiosClient.get(`/admin/registrations/${selected.id}/cccd`);
-      setCccd(res.cccd_number);
-      clearTimeout(hideTimer.current);
-      hideTimer.current = setTimeout(() => setCccd(null), CCCD_AUTO_HIDE_MS);
-    } catch (e) {
-      setActionError(apiErrorMessage(e, 'Không giải mã được CCCD'));
+      const { data } = await axiosClient.get(`/admin/registrations/${item.id}/cccd`, { signal: controller.signal });
+      if (!controller.signal.aborted) {
+        setCccd(data.cccd_number);
+        hideTimer.current = setTimeout(hideCccd, 30_000);
+      }
+    } catch (err) {
+      if (!controller.signal.aborted) setCccdError(apiErrorMessage(err, 'Không đọc được CCCD.'));
     } finally {
-      setCccdLoading(false);
+      if (!controller.signal.aborted) setCccdLoading(false);
     }
   }
 
   async function review(action) {
-    if (submitting) return;
-    if (action === 'reject' && !note.trim()) { setActionError('Vui lòng nhập lý do từ chối để gửi về chủ quán.'); return; }
-    setSubmitting(true);
-    setActionError('');
+    if (busy || stale) return;
+    setBusy(true);
+    setError('');
     try {
       const decision = { action, admin_note: note.trim() || null };
-      if (action === 'approve' && !selected.poi_location && legacyCoordinates) {
-        decision.poi_location = { type: 'Point', coordinates: legacyCoordinates };
+      if (action === 'approve' && !storedPin && legacyPin) {
+        decision.poi_location = { type: 'Point', coordinates: legacyPin };
       }
-      await axiosClient.post(`/admin/registrations/${selected.id}/review`, decision);
-      setToast(action === 'approve' ? `Đã duyệt và công khai "${selected.poi_name}".` : `Đã từ chối "${selected.poi_name}" và gửi lý do cho chủ quán.`);
-      setSelectedId(null);
-      await load();
-    } catch (e) {
-      setActionError(apiErrorMessage(e, 'Không xử lý được hồ sơ'));
-      if (e.response?.status === 409) load(); // hồ sơ vừa được admin khác xử lý
+      await axiosClient.post(`/admin/registrations/${item.id}/review`, decision);
+      reviewed(action === 'approve' ? `Đã duyệt và công khai “${item.poi_name}”.` : `Đã từ chối hồ sơ “${item.poi_name}”.`);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Không xử lý được hồ sơ.'));
+      if (err.response?.status === 409) {
+        setStale(true);
+        reload();
+      }
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   }
 
-  useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(''), 5000); return () => clearTimeout(t); }, [toast]);
+  const footer = (error || canApprove || canReject) && (
+    <div className="space-y-3">
+      {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+        {error}{stale && ' Đóng và mở lại hồ sơ để xem dữ liệu mới nhất.'}
+      </p>}
+      {!stale && rejecting && (
+        <label className="block text-sm font-medium">
+          Lý do từ chối (gửi về chủ quán)
+          <textarea autoFocus rows={2} maxLength={500} value={note} disabled={busy}
+            onChange={(event) => setNote(event.target.value)}
+            className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2" />
+        </label>
+      )}
+      {!stale && canApprove && !canPublish && !rejecting && (
+        <p className="text-sm text-slate-600">Cần quyền công khai và quyền tạo hoặc cập nhật quán để duyệt.</p>
+      )}
+      {!stale && (
+        <div className="flex flex-wrap justify-end gap-2 text-sm font-semibold">
+          {rejecting ? (
+            <>
+              <button type="button" disabled={busy} onClick={() => { setRejecting(false); setNote(''); setError(''); }}
+                className="rounded-lg border border-slate-300 px-4 py-2">Quay lại</button>
+              <button type="button" disabled={busy || !note.trim()} onClick={() => review('reject')}
+                className="rounded-lg bg-red-700 px-4 py-2 text-white disabled:opacity-40">
+                {busy ? 'Đang gửi…' : 'Xác nhận từ chối'}
+              </button>
+            </>
+          ) : (
+            <>
+              {canReject && <button type="button" disabled={busy} onClick={() => { setRejecting(true); setError(''); }}
+                className="rounded-lg bg-red-100 px-4 py-2 text-red-800 disabled:opacity-40">Từ chối</button>}
+              {canApprove && canPublish && <button type="button" disabled={busy || (!storedPin && !legacyPin)}
+                onClick={() => review('approve')}
+                className="rounded-lg bg-teal-700 px-4 py-2 text-white disabled:opacity-40">
+                {busy ? 'Đang duyệt…' : 'Duyệt và công khai quán'}
+              </button>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border bg-white p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-bold">Duyệt chủ quán</h2>
-          <input
-            type="search" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Tìm theo tên, quán, SĐT, email…" aria-label="Tìm hồ sơ"
-            className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-slate-500"
-          />
+    <ReviewDialog title={item.poi_name || 'Hồ sơ chủ quán'} description="Đối chiếu hồ sơ đăng ký và vị trí quán"
+      busy={busy} onClose={close} footer={footer}>
+      <div className="space-y-5">
+        <ReviewStatus status={item.status} />
+        <dl className="grid gap-3 sm:grid-cols-2">
+          <Field label="Chủ quán">{item.full_name}</Field>
+          <Field label="Số điện thoại">{item.phone}</Field>
+          <Field label="Email">{item.email}</Field>
+          <Field label="Ngày gửi">{fmt(item.created_at)}</Field>
+          <div className="sm:col-span-2"><Field label="Địa chỉ quán">{item.poi_address}</Field></div>
+        </dl>
+        <div className="grid items-start gap-4 md:grid-cols-2">
+          <section className="min-w-0 space-y-2">
+            <h4 className="text-sm font-semibold">Ảnh mặt tiền</h4>
+            <StorefrontImage src={item.storefront_image_url} name={item.poi_name} />
+          </section>
+          <section className="min-w-0 space-y-2" aria-label="Vị trí quán">
+            <h4 className="text-sm font-semibold">Vị trí quán</h4>
+            {(storedPin || (canApprove && canPublish)) ? (
+              <>
+                <ShopLocationMap coordinates={storedPin ?? legacyPin} centerOn={storedPin}
+                  showCenterPinButton={false} disabled={busy || stale}
+                  onPick={storedPin ? undefined : setLegacyPin} />
+                <p className="text-sm text-slate-600">
+                  {storedPin ? 'Ghim do chủ quán gửi cùng hồ sơ.'
+                    : legacyPin ? 'Đã chọn vị trí. Bấm trên bản đồ để thay đổi.'
+                    : 'Hồ sơ cũ chưa có ghim. Bấm trên bản đồ để chọn vị trí trước khi duyệt.'}
+                </p>
+              </>
+            ) : <p className="text-sm text-slate-600">Hồ sơ chưa có vị trí đã ghim.</p>}
+          </section>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2" role="tablist">
-          {TABS.map(([value, label]) => {
-            const count = value ? data.counts?.[value] : undefined;
-            return (
-              <button
-                key={label} role="tab" aria-selected={tab === value} onClick={() => { setTab(value); setSelectedId(null); }}
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${tab === value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-              >
-                {label}{count !== undefined ? ` (${count})` : ''}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {toast && <div role="status" className="rounded-xl border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{toast}</div>}
-      {listError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{listError}</div>}
-
-      <div className="grid gap-4 lg:grid-cols-5">
-        <div className="overflow-hidden rounded-xl border bg-white lg:col-span-2">
-          {loading && data.items.length === 0 ? (
-            <p className="p-4 text-sm text-slate-500">Đang tải…</p>
-          ) : data.items.length === 0 ? (
-            <p className="p-4 text-sm text-slate-500">Không có hồ sơ nào.</p>
-          ) : (
-            <ul className="divide-y" aria-busy={loading}>
-              {data.items.map((item) => (
-                <li key={item.id}>
-                  <button
-                    onClick={() => setSelectedId(item.id)} aria-current={item.id === selectedId}
-                    className={`w-full px-4 py-3 text-left hover:bg-slate-50 ${item.id === selectedId ? 'bg-slate-100' : ''}`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-semibold text-slate-900">{item.poi_name || '(chưa đặt tên quán)'}</span>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[item.status] || ''}`}>{STATUS_LABEL[item.status] || item.status}</span>
-                    </div>
-                    <div className="mt-0.5 truncate text-xs text-slate-600">{item.full_name} · {item.phone}</div>
-                    <div className="text-[11px] text-slate-400">{fmt(item.created_at)}</div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="flex items-center justify-between gap-2 border-t p-3 text-xs">
-            <button disabled={page === 0 || loading} onClick={() => { setPage((p) => p - 1); setSelectedId(null); }} className="rounded border px-3 py-1 disabled:opacity-40">← Trước</button>
-            <span>{data.total} hồ sơ · Trang {page + 1}/{Math.max(1, Math.ceil(data.total / limit))}</span>
-            <button disabled={loading || (page + 1) * limit >= data.total} onClick={() => { setPage((p) => p + 1); setSelectedId(null); }} className="rounded border px-3 py-1 disabled:opacity-40">Sau →</button>
-          </div>
-        </div>
-
-        <div className="rounded-xl border bg-white p-4 lg:col-span-3">
-          {!selected ? (
-            <p className="text-sm text-slate-500">Chọn một hồ sơ ở danh sách bên trái để xem chi tiết và đối chiếu.</p>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="text-base font-bold">{selected.poi_name}</h3>
-                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[selected.status] || ''}`}>{STATUS_LABEL[selected.status] || selected.status}</span>
-              </div>
-
-              <StorefrontImage src={selected.storefront_image_url} alt={`Mặt tiền ${selected.poi_name}`} />
-
-              <dl className="grid gap-3 sm:grid-cols-2">
-                <Field label="Chủ quán">{selected.full_name}</Field>
-                <Field label="Số điện thoại">{selected.phone}</Field>
-                <Field label="Email">{selected.email}</Field>
-                <Field label="Ngày gửi (GMT+7)">{fmt(selected.created_at)}</Field>
-                <div className="sm:col-span-2"><Field label="Địa chỉ quán">{selected.poi_address}</Field></div>
-              </dl>
-
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Số CCCD (đã mã hoá khi lưu trữ)</div>
-                {!selected.cccd_available ? (
-                  <p className="mt-1 text-sm text-amber-700">Hồ sơ không có CCCD — không thể đối chiếu.</p>
-                ) : cccd ? (
-                  <div className="mt-1 flex items-center gap-3">
-                    <code className="rounded bg-white px-2 py-1 text-base font-semibold tracking-widest" aria-live="polite">{cccd}</code>
-                    <button onClick={() => { clearTimeout(hideTimer.current); setCccd(null); }} className="text-xs font-medium text-slate-600 underline">Ẩn</button>
-                    <span className="text-[11px] text-slate-400">Tự ẩn sau 30 giây</span>
-                  </div>
-                ) : (
-                  <div className="mt-1 flex items-center gap-3">
-                    <span className="text-base tracking-widest text-slate-400">••••••••••••</span>
-                    {canReview ? (
-                      <button onClick={revealCccd} disabled={cccdLoading} className="rounded bg-slate-800 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
-                        {cccdLoading ? 'Đang giải mã…' : 'Xem CCCD'}
-                      </button>
-                    ) : <span className="text-xs text-slate-500">Bạn không có quyền xem CCCD</span>}
-                  </div>
-                )}
-              </div>
-
-              {actionError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>}
-
-              {selected.status === 'pending' && canReview && rejecting && (
-                  <div className="space-y-2">
-                    <label htmlFor="reject-note" className="block text-sm font-medium text-slate-700">Lý do từ chối (gửi về chủ quán)</label>
-                    <textarea
-                      id="reject-note" rows={3} maxLength={NOTE_MAX} value={note} onChange={(e) => setNote(e.target.value)} autoFocus
-                      placeholder="VD: Ảnh mặt tiền bị mờ, vui lòng chụp lại rõ bảng hiệu."
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-red-400"
-                    />
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-slate-400">{note.length}/{NOTE_MAX}</span>
-                      <div className="flex gap-2">
-                        <button onClick={() => { setRejecting(false); setNote(''); setActionError(''); }} disabled={submitting} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200">Quay lại</button>
-                        <button onClick={() => review('reject')} disabled={submitting || !note.trim()} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">
-                          {submitting ? 'Đang gửi…' : 'Xác nhận từ chối'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-              )}
-
-              {(selected.poi_location || (showApproval && canPublish)) && !rejecting && (
-                <section className="space-y-2" aria-label="Vị trí quán">
-                  <h4 className="text-sm font-semibold">Vị trí quán</h4>
-                  <p className="text-sm text-slate-600">
-                    {selected.poi_location
-                      ? 'Vị trí đã lưu trong hồ sơ.'
-                      : 'Hồ sơ cũ chưa có ghim. Chọn vị trí trên bản đồ theo địa chỉ quán trước khi duyệt.'}
-                  </p>
-                  <ShopLocationMap key={selected.id}
-                    coordinates={selected.poi_location?.coordinates ?? legacyCoordinates}
-                    onPick={selected.poi_location ? undefined :
-                      (coordinates) => setReviewPin({ registrationId: selected.id, coordinates })}
-                    disabled={submitting} />
-                </section>
-              )}
-
-              {showApproval && !canPublish && (
-                <p className="text-sm text-slate-600">Cần quyền công khai và quyền tạo hoặc cập nhật quán để duyệt.</p>
-              )}
-              {!rejecting && canReview && (
-                <div className="flex flex-wrap gap-2">
-                  {showApproval && canPublish && (
-                    <button type="button" onClick={() => review('approve')}
-                      disabled={submitting || (!selected.poi_location && !legacyCoordinates)}
-                      className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800 disabled:opacity-50">
-                      {submitting ? 'Đang duyệt…' : 'Duyệt và công khai quán'}
-                    </button>
-                  )}
-                  {selected.status === 'pending' && (
-                    <button type="button" onClick={() => setRejecting(true)} disabled={submitting}
-                      className="rounded-lg bg-red-100 px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-200">Từ chối</button>
-                  )}
-                </div>
-              )}
-
-              {selected.linked_poi_id && <p className="text-sm font-medium text-green-800">Đã gắn quán trong POI Master.</p>}
-
-              {selected.status !== 'pending' && (
-                <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
-                  Đã xử lý lúc {fmt(selected.reviewed_at)}.{selected.admin_note && <> Ghi chú: <em>{selected.admin_note}</em></>}
-                </div>
+        <div className="space-y-2 rounded-lg bg-slate-50 p-3">
+          <h4 className="text-sm font-semibold">Căn cước công dân</h4>
+          {item.cccd_available ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <code aria-live="polite" className="tracking-widest">{cccd || '••••••••••••'}</code>
+              {cccd ? (
+                <>
+                  <button type="button" onClick={hideCccd} className="text-sm font-semibold underline">Ẩn</button>
+                  <span className="text-xs text-slate-600">Tự ẩn sau 30 giây</span>
+                </>
+              ) : canReview && (
+                <button type="button" onClick={revealCccd} disabled={cccdLoading}
+                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
+                  {cccdLoading ? 'Đang giải mã…' : 'Xem CCCD'}
+                </button>
               )}
             </div>
-          )}
+          ) : <p className="text-sm text-slate-600">Không có CCCD để đối chiếu.</p>}
+          {cccdError && <p role="alert" className="text-sm text-red-800">{cccdError}</p>}
         </div>
+        {item.linked_poi_id && <p className="text-sm font-medium text-green-800">Đã gắn quán trong POI Master.</p>}
+        {item.status !== 'pending' && (
+          <div className="rounded-lg bg-slate-50 p-3 text-sm">
+            Đã xử lý lúc {fmt(item.reviewed_at)}.
+            {item.admin_note && <p className="mt-1 whitespace-pre-wrap break-words">{item.admin_note}</p>}
+          </div>
+        )}
       </div>
-    </div>
+    </ReviewDialog>
+  );
+}
+
+export default function RegistrationsPage() {
+  return (
+    <ReviewQueue endpoint="/admin/registrations" title="Duyệt chủ quán"
+      searchPlaceholder="Tên, quán, SĐT hoặc email" columns={columns}
+      renderDetail={(item, controls) => <RegistrationReview item={item} {...controls} />} />
   );
 }

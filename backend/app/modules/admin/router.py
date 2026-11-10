@@ -319,10 +319,12 @@ async def list_owner_registrations(
     q: str | None = Query(None, max_length=100, description="Tìm theo tên chủ quán / tên quán / SĐT / email"),
     limit: int = Query(100, ge=1, le=200),
     skip: int = Query(0, ge=0),
+    sort_by: Literal["poi_name", "full_name", "status", "created_at"] = "created_at",
+    order: Literal["asc", "desc"] = "desc",
     _: dict = Depends(require_permission("user:read")),
 ):
     """Danh sách hồ sơ đăng ký (không chứa CCCD) + số lượng theo trạng thái."""
-    return await list_registrations(status_filter, q, limit, skip)
+    return await list_registrations(status_filter, q, limit, skip, sort_by=sort_by, order=order)
 
 
 @router.get("/registrations/{reg_id}/cccd")
@@ -368,9 +370,11 @@ async def list_poi_submissions(
     q: str | None = Query(None, max_length=100),
     limit: int = Query(100, ge=1, le=200),
     skip: int = Query(0, ge=0),
+    sort_by: Literal["poi_name", "status", "created_at"] = "created_at",
+    order: Literal["asc", "desc"] = "desc",
     _: dict = Depends(require_permission("poi:read")),
 ):
-    return await list_submissions(status_filter, q, limit, skip)
+    return await list_submissions(status_filter, q, limit, skip, sort_by=sort_by, order=order)
 
 
 @router.post("/submissions/{sub_id}/review")

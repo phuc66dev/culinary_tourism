@@ -56,7 +56,8 @@ def serialize_submission(doc, poi):
     }
 
 
-async def list_submissions(status=None, q=None, limit=100, skip=0):
+async def list_submissions(status=None, q=None, limit=100, skip=0, *,
+                           sort_by="created_at", order="desc"):
     """Filter at MongoDB BEFORE pagination, avoiding loading all submissions into RAM.
 
     POI IDs historically appear as either ObjectId or string in submissions.
@@ -75,9 +76,27 @@ async def list_submissions(status=None, q=None, limit=100, skip=0):
             matching_pois.append(ObjectId(needle))
         poi_ids = list(set(matching_pois))
         query["poi_id"] = {"$in": poi_ids + [str(pid) for pid in poi_ids]}
-    total = await db["poi_submissions"].count_documents(query)
-    docs = [d async for d in db["poi_submissions"].find(query)
-            .sort("created_at", -1).skip(skip).limit(limit)]
+    collection = db["poi_submissions"]
+    total = await collection.count_documents(query)
+    direction = 1 if order == "asc" else -1
+    if sort_by == "poi_name":
+        cursor = collection.aggregate([
+            {"$match": query},
+            {"$set": {"_sort_poi_id": {"$convert": {
+                "input": "$poi_id", "to": "objectId", "onError": None, "onNull": None,
+            }}}},
+            {"$lookup": {"from": "poi", "localField": "_sort_poi_id", "foreignField": "_id", "as": "_sort_poi"}},
+            {"$set": {"_sort_name": {"$ifNull": [
+                {"$arrayElemAt": ["$_sort_poi.name", 0]}, "(POI không còn tồn tại)",
+            ]}}},
+            {"$sort": {"_sort_name": direction, "_id": direction}},
+            {"$skip": skip},
+            {"$limit": limit},
+            {"$unset": ["_sort_poi", "_sort_poi_id", "_sort_name"]},
+        ])
+    else:
+        cursor = collection.find(query).sort([(sort_by, direction), ("_id", direction)]).skip(skip).limit(limit)
+    docs = [doc async for doc in cursor]
     ids = [ObjectId(str(d["poi_id"])) for d in docs
            if ObjectId.is_valid(str(d.get("poi_id", "")))]
     pois = [p async for p in db["poi"].find({"_id": {"$in": ids}})] if ids else []

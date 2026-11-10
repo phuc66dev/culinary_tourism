@@ -21,6 +21,7 @@ const streetMap = {
 
 export default function ShopLocationMap({
   coordinates, centerOn, onPick, disabled = false, draggablePin = false, pickOnPan = false,
+  showCenterPinButton = true,
 }) {
   const container = useRef(null);
   const mapRef = useRef(null);
@@ -38,6 +39,7 @@ export default function ShopLocationMap({
 
   useEffect(() => {
     let map;
+    let observer;
     try {
       map = new maplibregl.Map({
         container: container.current,
@@ -51,16 +53,17 @@ export default function ShopLocationMap({
       mapRef.current = map;
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
       map.addControl(new maplibregl.AttributionControl({ compact: false }));
-      map.on("load", () => {
-        setReady(true);
-        map.on("click", (event) => pick(event.lngLat));
-        if (pickOnPan) map.on("dragend", () => pick(map.getCenter()));
-      });
+      map.on("load", () => setReady(true));
+      map.on("click", (event) => pick(event.lngLat));
+      if (pickOnPan) map.on("dragend", () => pick(map.getCenter()));
+      observer = new ResizeObserver(() => map.resize());
+      observer.observe(container.current);
       map.on("error", () => setError("Bản đồ đường phố tải chưa đầy đủ. Bạn có thể thử tải lại."));
     } catch {
       setError("Không mở được bản đồ. Hãy thử tải lại hoặc dùng trình duyệt hỗ trợ WebGL.");
     }
     return () => {
+      observer?.disconnect();
       markerRef.current?.remove();
       markerRef.current = null;
       mapRef.current = null;
@@ -69,7 +72,12 @@ export default function ShopLocationMap({
   }, [attempt, pickOnPan]);
 
   useEffect(() => {
-    if (!coordinates || !mapRef.current) return;
+    if (!coordinates) {
+      markerRef.current?.remove();
+      markerRef.current = null;
+      return;
+    }
+    if (!mapRef.current) return;
     if (!markerRef.current) {
       const marker = new maplibregl.Marker({ color: "#b42318" })
         .setLngLat(coordinates)
@@ -79,21 +87,21 @@ export default function ShopLocationMap({
     } else {
       markerRef.current.setLngLat(coordinates);
     }
-  }, [coordinates, attempt]);
+  }, [coordinates, attempt, pickOnPan]);
 
   useEffect(() => {
     markerRef.current?.setDraggable(draggablePin && !disabled);
-  }, [coordinates, attempt, draggablePin, disabled]);
+  }, [coordinates, attempt, draggablePin, disabled, pickOnPan]);
 
   useEffect(() => {
     if (centerOn) mapRef.current?.jumpTo({ center: centerOn, zoom: 17 });
-  }, [centerOn, attempt]);
+  }, [centerOn, attempt, pickOnPan]);
 
   return (
     <div className="space-y-2">
       <div ref={container} className="h-60 w-full overflow-hidden rounded-lg border border-slate-300 bg-slate-100"
         role="region" aria-label={onPick ? "Bản đồ chọn vị trí quán" : "Vị trí quán trên bản đồ"} />
-      {onPick && !pickOnPan && (
+      {onPick && !pickOnPan && showCenterPinButton && (
         <button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
           disabled={disabled || !ready} onClick={() => pick(mapRef.current.getCenter())}>
           Ghim ở giữa bản đồ

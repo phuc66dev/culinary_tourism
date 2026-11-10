@@ -30,6 +30,16 @@ def _timestamp_iso(value: datetime) -> str:
     return value.isoformat()
 
 
+def normalize_doc(doc: dict | None) -> dict | None:
+    """Ensure naive datetimes from MongoDB are tagged as timezone.utc."""
+    if not doc:
+        return None
+    for k, v in list(doc.items()):
+        if isinstance(v, datetime) and v.tzinfo is None:
+            doc[k] = v.replace(tzinfo=timezone.utc)
+    return doc
+
+
 def serialize(doc):
     if not doc:
         return None
@@ -88,7 +98,7 @@ class AudioTaskStore:
 
     async def get(self, id):
         key = oid(id)
-        return await self.collection.find_one({"_id": key}) if key else None
+        return normalize_doc(await self.collection.find_one({"_id": key})) if key else None
 
     async def update(self, id, **fields) -> None:
         key = oid(id)
@@ -120,7 +130,7 @@ class AudioTaskStore:
         return applied
 
     async def find_active_for_poi(self, poi_id: str):
-        return await self.collection.find_one({"poi_id": poi_id, "status": {"$in": list(ACTIVE_STATUSES)}})
+        return normalize_doc(await self.collection.find_one({"poi_id": poi_id, "status": {"$in": list(ACTIVE_STATUSES)}}))
 
     async def list(self, limit: int = 50):
         return [serialize(t) async for t in self.collection.find().sort("created_at", -1).limit(limit)]

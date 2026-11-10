@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     AUDIO_TASK_HEARTBEAT_SECONDS: int = 5
     AUDIO_TASK_STALE_AFTER_MINUTES: int = 5
     AUDIO_TASK_RETENTION_DAYS: int = 14
+    GOOGLE_TRANSLATION_API_KEY: str = ""
 
     # Localization & AI Constants
     ON_DEMAND_RATE_LIMIT_PER_10MIN: int = 30

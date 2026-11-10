@@ -71,7 +71,8 @@ def _serialize(doc: dict, email: Optional[str] = None) -> dict:
 
 
 async def list_registrations(status: Optional[str] = None, q: Optional[str] = None,
-                             limit: int = 100, skip: int = 0) -> dict:
+                             limit: int = 100, skip: int = 0, *,
+                             sort_by: str = "created_at", order: str = "desc") -> dict:
     """Search in Mongo BEFORE pagination, including users' emails (not just first N docs)."""
     if status is not None and status not in STATUSES:
         raise HTTPException(422, "status must be pending, approved or rejected")
@@ -85,8 +86,9 @@ async def list_registrations(status: Optional[str] = None, q: Optional[str] = No
             {field: pattern} for field in ("full_name", "poi_name", "phone")
         ] + [{"user_id": {"$in": email_ids + [str(uid) for uid in email_ids]}}]
     total = await db["poi_owner_registrations"].count_documents(query)
+    direction = 1 if order == "asc" else -1
     docs = [d async for d in db["poi_owner_registrations"].find(query)
-            .sort("created_at", -1).skip(skip).limit(limit)]
+            .sort([(sort_by, direction), ("_id", direction)]).skip(skip).limit(limit)]
     user_ids = [_object_id(d["user_id"], "user ID") for d in docs
                 if d.get("user_id") and ObjectId.is_valid(str(d["user_id"]))]
     emails = {

@@ -9,7 +9,9 @@ from bson import ObjectId
 from app.core.config import settings
 from app.core.database import get_db, mongo_transaction
 from app.modules.admin.audit import write_audit_event
-from app.modules.audio.service import DEFAULT_NEURAL_VOICES, SynthResult, TranslationRateLimited, tts_service
+from app.modules.audio.service import (
+    DEFAULT_NEURAL_VOICES, SpeechTemporarilyUnavailable, SynthResult, TranslationRateLimited, tts_service,
+)
 from app.modules.audio.distributed_lease import (AudioSlotLease, HEARTBEAT_SECONDS, LEASE_SECONDS)
 from app.modules.audio.source_version import source_fingerprint
 from app.modules.audio.task_store import ACTIVE_STATUSES, audio_task_store, now, serialize
@@ -18,6 +20,8 @@ logger = logging.getLogger("quan4.audio.tasks")
 RATE_LIMIT_RETRY_SECONDS = 100  # above the shared 90-second Google cooldown
 MAX_AUTO_TRANSLATION_RETRIES = 3  # stop within ~10 min instead of silently waiting >2h
 MAX_RETRY_DELAY_SECONDS = 300
+SPEECH_RETRY_SECONDS = 15
+MAX_AUTO_SPEECH_RETRIES = 3
 
 
 def _ready_to_retry_filter(stamp):
@@ -227,7 +231,8 @@ class AudioTaskManager:
                     if not await store.update_if(
                         task_id, ("running", "paused"), lease_token=lease.token,
                         inc={"cache_hits": 1} if result.cache_hit else None,
-                        done=index + 1, current_language=lang,
+                        done=index + 1, current_language=lang, speech_retries=0,
+                        unset=("retry_kind",),
                     ):
                         return  # Cancelled / resumed from another process.
 
@@ -235,32 +240,40 @@ class AudioTaskManager:
                 await self._finish_transaction(task_id, lease.token)
         except asyncio.CancelledError:
             raise  # shutdown: lease expires/recovery resumes an abandoned claim
-        except TranslationRateLimited as exc:
-            # Google 429 is temporary. Keep already completed languages and
-            # requeue with a due time, rather than marking the whole job failed.
+        except (TranslationRateLimited, SpeechTemporarilyUnavailable) as exc:
+            speech_error = isinstance(exc, SpeechTemporarilyUnavailable)
+            counter = "speech_retries" if speech_error else "translation_retries"
+            retry_kind = "speech" if speech_error else "translation"
+            retry_limit = MAX_AUTO_SPEECH_RETRIES if speech_error else MAX_AUTO_TRANSLATION_RETRIES
+            base_delay = SPEECH_RETRY_SECONDS if speech_error else RATE_LIMIT_RETRY_SECONDS
             current = await store.get(task_id)
-            retries = int((current or {}).get("translation_retries", 0)) + 1
-            if retries > MAX_AUTO_TRANSLATION_RETRIES:
+            retries = int((current or {}).get(counter, 0)) + 1
+            retry_fields = {counter: retries, "retry_kind": retry_kind}
+            if retries > retry_limit:
+                message = (
+                    f"{exc} Đã hết lượt tự thử lại. Hãy thử lại sau."
+                    if speech_error else
+                    "Google Translate tiếp tục giới hạn. Nhập bản dịch thủ công rồi nhấn Tiếp tục, hoặc thử lại sau."
+                )
                 await store.update_if(
                     task_id, ("running",), lease_token=lease.token,
-                    status="failed", error="Google Translate tiếp tục giới hạn. Nhập bản dịch thủ công rồi nhấn Resume, hoặc thử lại sau.",
-                    finished_at=now(), translation_retries=retries,
+                    status="failed", error=message, finished_at=now(), **retry_fields,
                 )
             else:
-                delay = min(RATE_LIMIT_RETRY_SECONDS * (2 ** (retries - 1)), MAX_RETRY_DELAY_SECONDS)
+                delay = min(base_delay * (2 ** (retries - 1)), MAX_RETRY_DELAY_SECONDS)
                 await store.update_if(
                     task_id, ("running",), lease_token=lease.token,
-                    status="queued", current_language=None,
-                    error=str(exc), translation_retries=retries,
+                    status="queued", current_language=None, error=str(exc),
                     retry_at=now() + timedelta(seconds=delay),
-                    unset=("lease_token", "lease_until"),
+                    unset=("lease_token", "lease_until"), **retry_fields,
                 )
-                logger.warning("Google Translate rate-limited; task %s rescheduled (attempt %d)", task_id, retries)
+                logger.warning("Audio %s temporarily unavailable; task %s rescheduled (attempt %d)",
+                               retry_kind, task_id, retries)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Audio task thất bại %s", task_id)
             message = str(exc)[:300]
             if not await store.update_if(task_id, ("running",), lease_token=lease.token,
-                                         status="failed", error=message, finished_at=now()):
+                                         status="failed", error=message, finished_at=now(), unset=("retry_kind",)):
                 await store.update_if(task_id, ("paused",), lease_token=lease.token, error=message)
         finally:
             if heartbeat is not None:
@@ -306,10 +319,10 @@ class AudioTaskManager:
         valid = existing is not None and existing.get("source_hash") == source_hash
         description = (existing or {}).get("description") if valid else None
         if not description:
-            description = await tts_service.translate(base, lang)
+            description = base if lang == "vi" else await tts_service.translate(base, lang)
         title = (existing or {}).get("title") if valid else None
         if not title or (lang != "vi" and title == poi.get("name")):
-            title = await tts_service.translate(poi.get("name") or "", lang)
+            title = (poi.get("name") or "") if lang == "vi" else await tts_service.translate(poi.get("name") or "", lang)
         if not title or not title.strip():
             raise ValueError("Missing translated POI title")
         result = await tts_service.synthesize(description, lang)
@@ -378,7 +391,7 @@ class AudioTaskManager:
             ok = await audio_task_store.update_if(task_id, ("queued", "running"), status="paused")
         elif action == "resume" and status in ("paused", "failed"):
             ok = await audio_task_store.update_if(task_id, ("paused", "failed"), status="queued", error=None,
-                                                   translation_retries=0, unset=("retry_at",))
+                                                   translation_retries=0, speech_retries=0, unset=("retry_at", "retry_kind"))
             if ok:
                 self._start(task_id)
         elif action == "retry" and status == "queued" and task.get("retry_at"):
@@ -421,7 +434,7 @@ class AudioTaskManager:
             if action == "pause" and old in ("queued", "running"):
                 new, fields = "paused", {"status": "paused"}
             elif action == "resume" and old in ("paused", "failed"):
-                new, fields = "queued", {"status": "queued", "error": None, "translation_retries": 0}
+                new, fields = "queued", {"status": "queued", "error": None, "translation_retries": 0, "speech_retries": 0}
             elif action == "retry" and old == "queued" and doc.get("retry_at"):
                 new, fields = "queued", {"status": "queued", "error": None}
             elif action == "cancel" and old in ACTIVE_STATUSES + ("failed",):

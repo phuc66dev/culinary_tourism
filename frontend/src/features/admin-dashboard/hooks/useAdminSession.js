@@ -60,7 +60,7 @@ export function useAdminSession() {
   return { user, isLoading };
 }
 
-export const ADMIN_PERMISSIONS = ['poi:update', 'poi:approve', 'user:read', 'role:read', 'audit:read'];
+export const ADMIN_PERMISSIONS = ['poi:update', 'poi:approve', 'user:read', 'role:read', 'audit:read', 'analytics:view'];
 
 export function hasPermission(user, permission) {
   return Boolean(user?.permissions?.includes(permission));

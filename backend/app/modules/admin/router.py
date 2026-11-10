@@ -51,6 +51,7 @@ from app.modules.admin.schemas import (
 from app.modules.owner.schemas import OwnerRegisterRequest
 from app.modules.owner.service import MENU_IMAGE_MAX_BYTES, create_owner_registration
 from app.modules.admin.service import admin_service
+from app.modules.admin.operations_dashboard import get_operations_dashboard
 from app.modules.admin.audit import list_audit_events, fingerprint_login, write_audit_event
 from datetime import datetime
 
@@ -386,6 +387,21 @@ async def review_poi_submission(
 ):
     return await review_submission(sub_id, decision.action, decision.admin_note,
                                    decision.expected_revision, user, _client_ip(request))
+
+
+# ==========================================
+# Dashboard Analytics (Admin)
+# ==========================================
+@router.get("/dashboard/stats", summary="Thống kê tổng quan dành cho Admin")
+async def admin_dashboard_stats(
+    days: int = Query(30, description="Số ngày thống kê: 7, 30 hoặc 90"),
+    _: dict = Depends(require_permission("analytics:view")),
+):
+    # Query parameters are text in HTTP requests. Pydantic v2 does not coerce
+    # "30" into Literal[30], so use int and validate allowed periods explicitly.
+    if days not in (7, 30, 90):
+        raise HTTPException(status_code=422, detail="days must be 7, 30 or 90")
+    return await get_operations_dashboard(days)
 
 
 # ==========================================

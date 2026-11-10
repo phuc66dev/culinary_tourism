@@ -117,7 +117,7 @@ Swagger UI cung cấp tài liệu API, request schema và response schema cho c�
 Mở terminal mới và di chuyển vào thư mục `frontend/` từ thư mục gốc dự án:
 
 ```powershell
-cd frontend
+
 ```
 
 Cài đặt dependencies (chỉ cần thực hiện lần đầu):
